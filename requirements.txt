@@ -1,0 +1,26 @@
+# ══════════════════════════════════════════════════════════════
+#  LSC Bridge — Dependencias
+#  Instalar con:  pip install -r requirements.txt
+# ══════════════════════════════════════════════════════════════
+
+# ── Visión por computadora ─────────────────────────────────────
+opencv-python>=4.8.0          # Captura de cámara y dibujo
+mediapipe>=0.10.0             # Detección de landmarks de mano
+
+# ── Machine Learning ───────────────────────────────────────────
+scikit-learn>=1.3.0           # Clasificador MLP / SVM / RF
+numpy>=1.24.0                 # Álgebra matricial
+joblib>=1.3.0                 # Serialización del modelo
+
+# ── Interfaz gráfica ───────────────────────────────────────────
+Pillow>=10.0.0                # Conversión OpenCV → Tkinter
+# tkinter viene incluido con Python estándar
+
+# ── Robot Unitree G1 ───────────────────────────────────────────
+# unitree_sdk2py               # SDK oficial Unitree (instalar manualmente)
+#                              # git clone https://github.com/unitreerobotics/unitree_sdk2_python
+#                              # cd unitree_sdk2_python && pip install -e .
+
+# ── Opcionales ─────────────────────────────────────────────────
+# torch>=2.0.0                 # Si se usa modelo PyTorch (LSTM/CNN)
+# torchvision>=0.15.0

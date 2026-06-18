@@ -1,0 +1,6 @@
+.venv/ 
+__pycache__/ 
+*.pyc 
+lsc_bridge.log 
+data/signs/ 
+data/lsc_model.pkl 

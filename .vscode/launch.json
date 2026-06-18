@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "▶ LSC Bridge — GUI completa",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "args": ["--modo", "gui"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "▶ LSC Bridge — Modo consola",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "args": ["--modo", "consola"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "▶ LSC Bridge — Sin robot (pruebas)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "args": ["--sin-robot", "--log-nivel", "DEBUG"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "▶ Capturar muestras LSC",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/models/capturar_muestras.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "▶ Entrenar clasificador LSC",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/models/entrenar.py",
+      "args": ["--datos", "data/signs", "--salida", "data/lsc_model.pkl", "--modelo", "mlp"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
