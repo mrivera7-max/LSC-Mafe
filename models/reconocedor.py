@@ -92,7 +92,7 @@ class ReconocedorLSC:
         self._fps_actual = 0.0
         self._fps_historia = []
         self._ventana_pred = []
-        self._tam_ventana = 5
+        self._tam_ventana = 3
         # Guardamos los ultimos landmarks para dibujar
         self._lm_der = []
         self._lm_izq = []
@@ -271,6 +271,8 @@ class ReconocedorLSC:
     def _clasificar_y_suavizar(self, landmarks_izq, landmarks_der):
         features = self._extraer_features(landmarks_izq, landmarks_der)
         nombre, confianza = self._clasificar(features)
+
+        log.debug(f"Prediccion: {nombre} ({confianza*100:.1f}%) | umbral: {self.config.umbral_confianza*100:.0f}%")
 
         if confianza < self.config.umbral_confianza:
             return None

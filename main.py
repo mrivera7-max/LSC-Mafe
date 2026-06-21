@@ -38,6 +38,11 @@ def parsear_argumentos():
         help="Ejecutar sin conectar al robot (modo demostración)",
     )
     parser.add_argument(
+        "--v2",
+        action="store_true",
+        help="Usar reconocedor v2 (secuencias mano+cara, detecta movimiento y Silencio)",
+    )
+    parser.add_argument(
         "--camara",
         type=int,
         default=0,
@@ -74,6 +79,10 @@ def main():
     config = Configuracion(args.config)
     config.camara_idx = args.camara
     config.robot_activo = not args.sin_robot
+    config.usar_v2 = args.v2
+
+    if args.v2:
+        log.info("Modo V2 activo: reconocimiento secuencial (mano + cara)")
 
     if args.sin_robot:
         log.warning("Modo demostración: robot deshabilitado")

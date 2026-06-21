@@ -1,0 +1,7 @@
+Bien
+Gracias
+Hola
+Mal
+No
+Si
+Silencio

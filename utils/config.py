@@ -21,9 +21,11 @@ class Configuracion:
 
         # Modelo
         self.modelo_tipo = "mediapipe"
-        self.umbral_confianza = 0.75
+        self.umbral_confianza = 0.6
         self.num_manos = 2
         self.modelo_pesos = "data/lsc_model.pkl"
+        self.modelo_pesos_v2 = "data/lsc_model_v2.pkl"
+        self.usar_v2 = False  # True = reconocedor secuencial (mano+cara), False = estatico
         # IMPORTANTE: este orden debe coincidir con el orden alfabetico
         # de las carpetas en data/signs/ (asi se entreno el modelo)
         self.clases_lsc = [

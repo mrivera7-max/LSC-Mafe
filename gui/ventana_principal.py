@@ -1,5 +1,5 @@
 """
-Ventana principal de LSC (Tkinter + OpenCV).
+Ventana principal de LSC Bridge (Tkinter + OpenCV).
 
 Layout:
   ┌─────────────────────────────────────────────────────┐
@@ -7,9 +7,9 @@ Layout:
   ├──────────────────────────┬──────────────────────────┤
   │  Feed de cámara + LM     │  Panel de información    │
   │  (OpenCV → PIL → Tk)     │  • Seña / Confianza      │
-  │                          │  • Traducción            │
-  │                          │  • Estado robot          │
-  │                          │  • Historial             │
+  │                          │  • Traducción             │
+  │                          │  • Estado robot           │
+  │                          │  • Historial              │
   ├──────────────────────────┴──────────────────────────┤
   │  Barra de estado (FPS · Señas detectadas · Robot)   │
   └─────────────────────────────────────────────────────┘
@@ -28,9 +28,9 @@ log = logging.getLogger("lsc_bridge.gui")
 
 
 class VentanaPrincipal:
-    """Ventana principal de la aplicación LSC."""
+    """Ventana principal de la aplicación LSC Bridge."""
 
-    TITULO = "LSC — Lengua de Señas Colombiana | Unitree G1"
+    TITULO = "LSC Bridge — Lengua de Señas Colombiana | Unitree G1"
     ANCHO_MIN = 1100
     ALTO_MIN  = 680
 
@@ -75,7 +75,7 @@ class VentanaPrincipal:
         self._raiz.mainloop()
 
     def _al_cerrar(self):
-        log.info("Cerrando LSC...")
+        log.info("Cerrando LSC Bridge...")
         self._activa = False
         self._detener_camara()
         if self._robot:
@@ -169,7 +169,7 @@ class VentanaPrincipal:
     def _construir_barra(self):
         c = self._colores
         # Título
-        tk.Label(self._barra, text="◈  LSC",
+        tk.Label(self._barra, text="◈  LSC Bridge",
                  bg=c["acento"], fg=c["texto"],
                  font=("Segoe UI", 13, "bold")).pack(side="left", padx=16)
         tk.Label(self._barra, text="Lengua de Señas Colombiana → Unitree G1",
@@ -335,7 +335,7 @@ class VentanaPrincipal:
         self._lbl_status_fps.pack(side="left", padx=12)
 
         # Versión a la derecha
-        tk.Label(self._barra_estado, text="LSC Ing. María Fernanda Rivera Sanclemente v1.0 | Colombia",
+        tk.Label(self._barra_estado, text="LSC Bridge v1.0 | INSOR Colombia",
                  bg=c["acento"], fg=c["texto_sec"],
                  font=("Segoe UI", 8)).pack(side="right", padx=12)
 
@@ -346,10 +346,17 @@ class VentanaPrincipal:
 
     def _iniciar_sistemas(self):
         """Inicializa el reconocedor y el conector al robot."""
-        from models.reconocedor import ReconocedorLSC
         from robot.conector_g1 import ConectorG1
 
-        self._reconocedor = ReconocedorLSC(self.config)
+        if getattr(self.config, "usar_v2", False):
+            from models.reconocedor_v2 import ReconocedorLSCv2
+            self._reconocedor = ReconocedorLSCv2(self.config)
+            log.info("Usando ReconocedorLSCv2 (secuencial mano+cara)")
+        else:
+            from models.reconocedor import ReconocedorLSC
+            self._reconocedor = ReconocedorLSC(self.config)
+            log.info("Usando ReconocedorLSC (estatico)")
+
         self._robot = ConectorG1(self.config)
 
         # Conectar callbacks del robot
