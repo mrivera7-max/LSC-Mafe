@@ -30,7 +30,7 @@ log = logging.getLogger("lsc_bridge.gui")
 class VentanaPrincipal:
     """Ventana principal de la aplicación LSC Bridge."""
 
-    TITULO = "LSC Bridge — Lengua de Señas Colombiana | Unitree G1"
+    TITULO = "LSC UDI — Lengua de Señas Colombiana | Unitree G1"
     ANCHO_MIN = 1100
     ALTO_MIN  = 680
 
@@ -169,7 +169,7 @@ class VentanaPrincipal:
     def _construir_barra(self):
         c = self._colores
         # Título
-        tk.Label(self._barra, text="◈  LSC Bridge",
+        tk.Label(self._barra, text="◈  LSC UDI",
                  bg=c["acento"], fg=c["texto"],
                  font=("Segoe UI", 13, "bold")).pack(side="left", padx=16)
         tk.Label(self._barra, text="Lengua de Señas Colombiana → Unitree G1",
@@ -335,7 +335,7 @@ class VentanaPrincipal:
         self._lbl_status_fps.pack(side="left", padx=12)
 
         # Versión a la derecha
-        tk.Label(self._barra_estado, text="LSC Bridge v1.0 | INSOR Colombia",
+        tk.Label(self._barra_estado, text="LSC Ing. María Fernanda Rivera Sanclemente | Colombia",
                  bg=c["acento"], fg=c["texto_sec"],
                  font=("Segoe UI", 8)).pack(side="right", padx=12)
 
