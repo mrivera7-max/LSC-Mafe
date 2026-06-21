@@ -21,15 +21,13 @@ class Configuracion:
 
         # Modelo
         self.modelo_tipo = "mediapipe"
-        self.umbral_confianza = 0.55
+        self.umbral_confianza = 0.75
         self.num_manos = 2
         self.modelo_pesos = "data/lsc_model.pkl"
+        # IMPORTANTE: este orden debe coincidir con el orden alfabetico
+        # de las carpetas en data/signs/ (asi se entreno el modelo)
         self.clases_lsc = [
-            "Hola", "Gracias", "Ayuda", "Si", "No", "Por favor",
-            "Como estas", "Bien", "Mal", "Buenos dias",
-            "Buenas tardes", "Buenas noches", "Espera",
-            "Ven", "Para", "Repite", "Mas despacio", "Entiendo",
-            "No entiendo", "Agua", "Comida", "Bano", "Emergencia",
+            "Bien", "Gracias", "Hola", "Mal", "No", "Silencio", "Si",
         ]
 
         # Robot Unitree G1
