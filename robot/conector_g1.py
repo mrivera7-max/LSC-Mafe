@@ -69,6 +69,12 @@ class ComandoArticular:
 # Ángulos en radianes. Positivo = flexión/abducción según convenio Unitree.
 # Ajustar estos valores según la calibración física del robot.
 
+# ── Mapeo de senas LSC a posturas del G1 ────────────────────────────────────
+# Angulos en radianes. Positivo = flexion/abduccion segun convenio Unitree.
+# Ajustar estos valores segun la calibracion fisica del robot.
+# IMPORTANTE: estos nombres deben coincidir EXACTAMENTE con las clases
+# entrenadas en el modelo (ver utils/config.py -> clases_lsc), sin tildes.
+
 POSTURAS_G1: dict[str, ComandoArticular] = {
     "Hola": ComandoArticular(
         hombro_der_pitch=-0.5, hombro_der_roll=0.3,
@@ -80,42 +86,30 @@ POSTURAS_G1: dict[str, ComandoArticular] = {
         codo_der=0.8, muñeca_der_pitch=-0.3,
         duracion=1.2, seña_origen="Gracias",
     ),
-    "Ayuda": ComandoArticular(
-        hombro_izq_pitch=-0.8, hombro_izq_roll=0.5,
-        codo_izq=1.5, muñeca_izq_pitch=0.0,
-        hombro_der_pitch=-0.8, hombro_der_roll=-0.5,
-        codo_der=1.5, muñeca_der_pitch=0.0,
-        duracion=0.8, seña_origen="Ayuda",
-    ),
-    "Sí": ComandoArticular(
+    "Si": ComandoArticular(
         hombro_der_pitch=-0.2, hombro_der_roll=0.1,
         codo_der=0.5, muñeca_der_pitch=0.5,
-        duracion=0.6, seña_origen="Sí",
+        duracion=0.6, seña_origen="Si",
     ),
     "No": ComandoArticular(
         hombro_der_pitch=-0.3, hombro_der_roll=0.2,
         codo_der=0.8, muñeca_der_yaw=0.6,
         duracion=0.6, seña_origen="No",
     ),
-    "Por favor": ComandoArticular(
-        hombro_der_pitch=-0.4, hombro_der_roll=0.0,
-        codo_der=1.0, muñeca_der_pitch=0.3,
-        duracion=1.5, seña_origen="Por favor",
-    ),
-    "Espera": ComandoArticular(
-        hombro_der_pitch=-0.6, hombro_der_roll=0.3,
-        codo_der=0.7, muñeca_der_pitch=0.8,
-        duracion=1.0, seña_origen="Espera",
-    ),
     "Bien": ComandoArticular(
         hombro_der_pitch=-0.4, hombro_der_roll=0.1,
         codo_der=1.3, muñeca_der_pitch=0.1,
         duracion=0.8, seña_origen="Bien",
     ),
-    "Emergencia": ComandoArticular(
-        hombro_izq_pitch=-1.0, hombro_izq_roll=0.8, codo_izq=1.8,
-        hombro_der_pitch=-1.0, hombro_der_roll=-0.8, codo_der=1.8,
-        duracion=0.5, velocidad=0.9, seña_origen="Emergencia",
+    "Mal": ComandoArticular(
+        hombro_der_pitch=-0.3, hombro_der_roll=-0.2,
+        codo_der=0.9, muñeca_der_pitch=-0.4, muñeca_der_yaw=-0.3,
+        duracion=0.8, seña_origen="Mal",
+    ),
+    "Silencio": ComandoArticular(
+        hombro_der_pitch=-0.7, hombro_der_roll=0.0,
+        codo_der=1.6, muñeca_der_pitch=0.0,
+        duracion=1.0, seña_origen="Silencio",
     ),
     # Postura de reposo
     "REPOSO": ComandoArticular(duracion=1.0, seña_origen="REPOSO"),

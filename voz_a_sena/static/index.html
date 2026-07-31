@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LSC UDI — Visor 3D del Robot G1</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0d1117;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+  #contenedor-3d {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+  }
+  #panel-info {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(22, 33, 62, 0.9);
+    border: 1px solid #2563eb;
+    border-radius: 10px;
+    padding: 16px 20px;
+    min-width: 280px;
+    z-index: 10;
+  }
+  #panel-info h1 {
+    font-size: 16px;
+    color: #93c5fd;
+    margin-bottom: 4px;
+  }
+  #panel-info .subtitulo {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 12px;
+  }
+  #estado-conexion {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+  .dot.activo { background: #22c55e; }
+  #sena-actual {
+    font-size: 28px;
+    font-weight: bold;
+    color: #22c55e;
+    min-height: 36px;
+  }
+  #traduccion-actual {
+    font-size: 13px;
+    color: #cbd5e1;
+    margin-top: 4px;
+  }
+  #progreso-secuencia {
+    margin-top: 12px;
+    font-size: 11px;
+    color: #64748b;
+  }
+  #barra-progreso {
+    width: 100%;
+    height: 4px;
+    background: #1e293b;
+    border-radius: 2px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  #barra-progreso-fill {
+    height: 100%;
+    background: #2563eb;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  #boton-vr {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 10;
+  }
+  #boton-vr:hover { background: #1d4ed8; }
+  #boton-vr:disabled { background: #374151; cursor: not-allowed; }
+  #historial {
+    position: absolute;
+    bottom: 24px;
+    left: 16px;
+    background: rgba(22, 33, 62, 0.9);
+    border: 1px solid #2563eb;
+    border-radius: 10px;
+    padding: 12px 16px;
+    max-width: 280px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-size: 11px;
+    z-index: 10;
+  }
+  #historial-titulo {
+    color: #64748b;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+  .historial-item {
+    padding: 3px 0;
+    border-bottom: 1px solid #1e293b;
+    color: #cbd5e1;
+  }
+</style>
+</head>
+<body>
+
+<div id="contenedor-3d">
+  <div id="panel-info">
+    <h1>◈ LSC UDI — Visor 3D</h1>
+    <div class="subtitulo">Robot Unitree G1 (simulacion)</div>
+    <div id="estado-conexion">
+      <div class="dot" id="dot-conexion"></div>
+      <span id="texto-conexion">Conectando...</span>
+    </div>
+    <div id="sena-actual">—</div>
+    <div id="traduccion-actual">Esperando texto o voz...</div>
+    <div id="progreso-secuencia">Paso 0 / 0</div>
+    <div id="barra-progreso"><div id="barra-progreso-fill"></div></div>
+  </div>
+
+  <div id="historial">
+    <div id="historial-titulo">Historial de senas</div>
+    <div id="lista-historial"></div>
+  </div>
+
+  <button id="boton-vr" disabled>Cargando VR...</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════
+//  ESCENA 3D — Robot humanoide simplificado (representa al G1)
+// ══════════════════════════════════════════════════════════════
+
+const contenedor = document.getElementById("contenedor-3d");
+
+const escena = new THREE.Scene();
+escena.background = new THREE.Color(0x0d1117);
+
+const camara = new THREE.PerspectiveCamera(
+  45, window.innerWidth / window.innerHeight, 0.1, 100
+);
+camara.position.set(0, 1.1, 2.6);
+camara.lookAt(0, 0.85, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+contenedor.appendChild(renderer.domElement);
+
+// Luces
+const luzAmbiente = new THREE.AmbientLight(0xffffff, 0.85);
+escena.add(luzAmbiente);
+const luzDireccional = new THREE.DirectionalLight(0xffffff, 1.1);
+luzDireccional.position.set(2, 4, 3);
+escena.add(luzDireccional);
+const luzRelleno = new THREE.DirectionalLight(0xaec8ff, 0.5);
+luzRelleno.position.set(-2, 1, -2);
+escena.add(luzRelleno);
+
+// Piso de referencia
+const piso = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.MeshStandardMaterial({ color: 0x222531, roughness: 0.9 })
+);
+piso.rotation.x = -Math.PI / 2;
+escena.add(piso);
+
+const grilla = new THREE.GridHelper(10, 20, 0x2563eb, 0x2a2d3a);
+escena.add(grilla);
+
+// ── Construccion del robot G1 (apariencia real: plateado, visor LED azul) ──
+// Referencia visual: torso plateado/blanco con logo, cabeza ovalada con
+// visor curvo azul LED, manos blanco/negro con dedos segmentados (EDU Ultimate).
+
+const colorCuerpo = 0xd8dadd;      // plateado claro (carcasa G1 real)
+const colorCuerpoOsc = 0xb8bbc0;   // plateado mas oscuro (sombras/juntas)
+const colorVisor = 0x3ba7e0;       // azul LED del visor facial
+const colorPanel = 0xc4c6ca;
+const colorManoBase = 0xf2f2f0;    // blanco de la palma (mano EDU Ultimate)
+const colorDedoOsc = 0x1c1c1e;     // negro de las puntas/segmentos de dedo
+const matCuerpo = new THREE.MeshStandardMaterial({ color: colorCuerpo, roughness: 0.35, metalness: 0.5 });
+const matCuerpoOsc = new THREE.MeshStandardMaterial({ color: colorCuerpoOsc, roughness: 0.4, metalness: 0.5 });
+const matJunta = new THREE.MeshStandardMaterial({ color: colorCuerpoOsc, roughness: 0.3, metalness: 0.6 });
+const matPanel = new THREE.MeshStandardMaterial({ color: colorPanel, roughness: 0.5, metalness: 0.4 });
+const matVisor = new THREE.MeshStandardMaterial({
+  color: colorVisor, roughness: 0.15, metalness: 0.1,
+  emissive: colorVisor, emissiveIntensity: 1.2,
+});
+const matManoBase = new THREE.MeshStandardMaterial({ color: colorManoBase, roughness: 0.4, metalness: 0.2 });
+const matDedoOsc = new THREE.MeshStandardMaterial({ color: colorDedoOsc, roughness: 0.5, metalness: 0.1 });
+
+function crearSegmento(largo, radioSup = 0.045, radioInf = 0.04) {
+  const geo = new THREE.CylinderGeometry(radioInf, radioSup, largo, 10);
+  const mesh = new THREE.Mesh(geo, matCuerpo);
+  mesh.position.y = -largo / 2;
+  return mesh;
+}
+
+function crearJunta(radio = 0.055) {
+  const geo = new THREE.SphereGeometry(radio, 14, 14);
+  return new THREE.Mesh(geo, matJunta);
+}
+
+// Torso (raiz del robot) — silueta angulosa plateada, mas ancho en hombros
+const torso = new THREE.Group();
+torso.position.set(0, 1.0, 0);
+const mallaTorso = new THREE.Mesh(
+  new THREE.BoxGeometry(0.28, 0.40, 0.16),
+  matCuerpo
+);
+mallaTorso.position.y = -0.02;
+torso.add(mallaTorso);
+
+// Hombros anchos (placas laterales, caracteristicas del G1)
+const placaHombroDer = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.10, 0.15), matCuerpoOsc);
+placaHombroDer.position.set(0.17, 0.16, 0);
+torso.add(placaHombroDer);
+const placaHombroIzq = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.10, 0.15), matCuerpoOsc);
+placaHombroIzq.position.set(-0.17, 0.16, 0);
+torso.add(placaHombroIzq);
+
+// Logo "Unitree" (placa rectangular oscura en el pecho)
+const logoPecho = new THREE.Mesh(
+  new THREE.BoxGeometry(0.11, 0.025, 0.005),
+  matPanel
+);
+logoPecho.position.set(0, 0.09, 0.082);
+torso.add(logoPecho);
+escena.add(torso);
+
+// Cabeza — ovalada/alargada con visor curvo frontal (look real del G1)
+const grupoCabeza = new THREE.Group();
+grupoCabeza.position.set(0, 0.27, 0);
+torso.add(grupoCabeza);
+
+const cuelloMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.045, 0.06, 10), matCuerpo);
+cuelloMesh.position.y = -0.02;
+grupoCabeza.add(cuelloMesh);
+
+const cabeza = new THREE.Mesh(new THREE.SphereGeometry(0.068, 18, 18), matCuerpo);
+cabeza.scale.set(0.95, 1.2, 1.0);
+cabeza.position.y = 0.045;
+grupoCabeza.add(cabeza);
+
+// Visor LED azul curvo (rasgo distintivo del G1: forma de "V" o casco luminoso)
+const visorCabeza = new THREE.Mesh(
+  new THREE.TorusGeometry(0.044, 0.011, 8, 16, Math.PI * 0.85),
+  matVisor
+);
+visorCabeza.rotation.set(0, 0, Math.PI * 1.075);
+visorCabeza.position.set(0, 0.055, 0.045);
+grupoCabeza.add(visorCabeza);
+
+const luzVisor = new THREE.PointLight(colorVisor, 0.4, 0.3);
+luzVisor.position.set(0, 0.055, 0.06);
+grupoCabeza.add(luzVisor);
+
+// ── Mano EDU Ultimate (5 dedos, palma blanca, segmentos blanco/negro) ──────
+function crearManoRevo2(esIzquierda) {
+  const signo = esIzquierda ? -1 : 1;
+  const mano = new THREE.Group();
+
+  // Palma (blanca, como en la mano real)
+  const palma = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.062, 0.022),
+    matManoBase
+  );
+  palma.position.y = -0.031;
+  mano.add(palma);
+
+  // Muñeca / conector cilindrico (visible en la foto real)
+  const conectorMuñeca = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.022, 0.024, 0.02, 12), matManoBase
+  );
+  conectorMuñeca.position.y = 0.01;
+  mano.add(conectorMuñeca);
+
+  function crearDedo(offsetX, offsetZ, largoFalange1, largoFalange2, esPulgar) {
+    const grupoDedo = new THREE.Group();
+    grupoDedo.position.set(offsetX, -0.06, offsetZ);
+    if (esPulgar) {
+      grupoDedo.rotation.z = signo * 1.1;
+      grupoDedo.rotation.x = -0.4;
+      grupoDedo.position.y = -0.045;
+    }
+
+    // Falange superior: blanca con punta negra (igual que la referencia)
+    const falangeSup = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.006, 0.0068, largoFalange1 * 0.7, 6), matManoBase
+    );
+    falangeSup.position.y = -(largoFalange1 * 0.7) / 2;
+    grupoDedo.add(falangeSup);
+
+    const puntaSup = new THREE.Mesh(
+      new THREE.SphereGeometry(0.0058, 8, 8), matDedoOsc
+    );
+    puntaSup.scale.set(1, 1.6, 1);
+    puntaSup.position.y = -(largoFalange1 * 0.7) - (largoFalange1 * 0.12);
+    grupoDedo.add(puntaSup);
+
+    const nudillo = new THREE.Group();
+    nudillo.position.y = -largoFalange1;
+    grupoDedo.add(nudillo);
+
+    // Falange inferior: punta negra completa (como el dedo de la foto)
+    const falangeInf = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0045, 0.0055, largoFalange2 * 0.7, 6), matDedoOsc
+    );
+    falangeInf.position.y = -(largoFalange2 * 0.7) / 2;
+    nudillo.add(falangeInf);
+
+    const puntaInf = new THREE.Mesh(
+      new THREE.SphereGeometry(0.005, 8, 8), matDedoOsc
+    );
+    puntaInf.scale.set(1, 1.4, 1);
+    puntaInf.position.y = -(largoFalange2 * 0.7) - (largoFalange2 * 0.1);
+    nudillo.add(puntaInf);
+
+    mano.add(grupoDedo);
+    return { grupo: grupoDedo, nudillo };
+  }
+
+  // 5 dedos: pulgar grueso negro (oponible), e indice/medio/anular/menique blanco-negro
+  const dedoPulgar  = crearDedo(signo * 0.020, 0.016, 0.020, 0.016, true);
+  const dedoIndice  = crearDedo(signo * 0.016, 0.005,  0.028, 0.022, false);
+  const dedoMedio   = crearDedo(signo * 0.006, 0.008,  0.030, 0.024, false);
+  const dedoAnular   = crearDedo(signo * -0.004, 0.006, 0.028, 0.022, false);
+  const dedoMenique = crearDedo(signo * -0.013, 0.002, 0.024, 0.018, false);
+
+  mano.userData.dedos = {
+    pulgar: dedoPulgar, indice: dedoIndice, medio: dedoMedio,
+    anular: dedoAnular, menique: dedoMenique,
+  };
+  return mano;
+}
+
+// ── Brazo derecho: hombro -> codo -> muñeca -> mano Dex3-1 ──────────────────
+const hombroDer = new THREE.Group();
+hombroDer.position.set(0.185, 0.16, 0);
+torso.add(hombroDer);
+hombroDer.add(crearJunta());
+
+const brazoSupDer = new THREE.Group();
+brazoSupDer.add(crearSegmento(0.26));
+hombroDer.add(brazoSupDer);
+
+const codoDer = new THREE.Group();
+codoDer.position.set(0, -0.26, 0);
+brazoSupDer.add(codoDer);
+codoDer.add(crearJunta(0.04));
+
+const brazoInfDer = new THREE.Group();
+brazoInfDer.add(crearSegmento(0.24, 0.038, 0.032));
+codoDer.add(brazoInfDer);
+
+const muñecaDer = new THREE.Group();
+muñecaDer.position.set(0, -0.24, 0);
+brazoInfDer.add(muñecaDer);
+muñecaDer.add(crearJunta(0.032));
+
+const manoDer = crearManoRevo2(false);
+manoDer.position.y = -0.03;
+muñecaDer.add(manoDer);
+
+// ── Brazo izquierdo (simetrico) ─────────────────────────────────────────────
+const hombroIzq = new THREE.Group();
+hombroIzq.position.set(-0.185, 0.16, 0);
+torso.add(hombroIzq);
+hombroIzq.add(crearJunta());
+
+const brazoSupIzq = new THREE.Group();
+brazoSupIzq.add(crearSegmento(0.26));
+hombroIzq.add(brazoSupIzq);
+
+const codoIzq = new THREE.Group();
+codoIzq.position.set(0, -0.26, 0);
+brazoSupIzq.add(codoIzq);
+codoIzq.add(crearJunta(0.04));
+
+const brazoInfIzq = new THREE.Group();
+brazoInfIzq.add(crearSegmento(0.24, 0.038, 0.032));
+codoIzq.add(brazoInfIzq);
+
+const muñecaIzq = new THREE.Group();
+muñecaIzq.position.set(0, -0.24, 0);
+brazoInfIzq.add(muñecaIzq);
+muñecaIzq.add(crearJunta(0.032));
+
+const manoIzq = crearManoRevo2(true);
+manoIzq.position.y = -0.03;
+muñecaIzq.add(manoIzq);
+
+// ── Piernas (estaticas, proporciones G1: mas largas que los brazos) ────────
+function crearPierna(offsetX) {
+  const cadera = new THREE.Group();
+  cadera.position.set(offsetX, -0.21, 0);
+  torso.add(cadera);
+  const piernaSup = crearSegmento(0.38, 0.055, 0.045);
+  cadera.add(piernaSup);
+  const rodilla = new THREE.Group();
+  rodilla.position.set(0, -0.38, 0);
+  cadera.add(rodilla);
+  const piernaInf = crearSegmento(0.36, 0.04, 0.03);
+  rodilla.add(piernaInf);
+  // Pie
+  const pie = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.03, 0.16), matCuerpo);
+  pie.position.set(0, -0.375, 0.04);
+  rodilla.add(pie);
+}
+crearPierna(0.085);
+crearPierna(-0.085);
+
+// ── Estado articular: manos abiertas/cerradas segun la postura ──────────────
+const dedosEstado = { abiertos: 0, cerrados: 0.9 }; // radianes de flexion
+
+function aplicarFlexionDedos(grupoMano, factorFlexion) {
+  const dedos = grupoMano.userData.dedos;
+  ["indice", "medio", "anular", "menique"].forEach((nombre) => {
+    const dedo = dedos[nombre];
+    dedo.nudillo.rotation.x = factorFlexion * 1.1;
+    dedo.grupo.rotation.x = factorFlexion * 0.7;
+  });
+  dedos.pulgar.nudillo.rotation.x = factorFlexion * 0.8;
+}
+
+// ── Estado articular objetivo (se actualiza al recibir comandos) ───────────
+
+const angulosActuales = {
+  hombroDerPitch: 0, hombroDerRoll: 0, codoDer: 0, muñecaDerPitch: 0, muñecaDerYaw: 0,
+  hombroIzqPitch: 0, hombroIzqRoll: 0, codoIzq: 0, muñecaIzqPitch: 0, muñecaIzqYaw: 0,
+  flexionManoDer: 0, flexionManoIzq: 0,
+};
+const angulosObjetivo = { ...angulosActuales };
+
+// Que tan cerrada debe estar cada mano por sena (0 = abierta, 1 = cerrada)
+const FLEXION_POR_SEÑA = {
+  "Hola": 0, "Gracias": 0.2, "Si": 0.85, "No": 0.3,
+  "Bien": 0.15, "Mal": 0.7, "Silencio": 0.3,
+};
+
+function aplicarAngulos() {
+  // Pitch = rotacion en X (adelante/atras), Roll = rotacion en Z (afuera/adentro)
+  hombroDer.rotation.x = angulosActuales.hombroDerPitch;
+  hombroDer.rotation.z = angulosActuales.hombroDerRoll;
+  codoDer.rotation.x = angulosActuales.codoDer;
+  muñecaDer.rotation.x = angulosActuales.muñecaDerPitch;
+  muñecaDer.rotation.y = angulosActuales.muñecaDerYaw;
+
+  hombroIzq.rotation.x = angulosActuales.hombroIzqPitch;
+  hombroIzq.rotation.z = -angulosActuales.hombroIzqRoll;
+  codoIzq.rotation.x = angulosActuales.codoIzq;
+  muñecaIzq.rotation.x = angulosActuales.muñecaIzqPitch;
+  muñecaIzq.rotation.y = angulosActuales.muñecaIzqYaw;
+
+  aplicarFlexionDedos(manoDer, angulosActuales.flexionManoDer);
+  aplicarFlexionDedos(manoIzq, angulosActuales.flexionManoIzq);
+}
+
+function interpolarHaciaObjetivo(velocidad = 0.15) {
+  let cambio = false;
+  for (const clave in angulosActuales) {
+    const diferencia = angulosObjetivo[clave] - angulosActuales[clave];
+    if (Math.abs(diferencia) > 0.001) {
+      angulosActuales[clave] += diferencia * velocidad;
+      cambio = true;
+    }
+  }
+  return cambio;
+}
+
+// ── Bucle de animacion ───────────────────────────────────────────────────────
+
+function animar() {
+  renderer.setAnimationLoop(() => {
+    interpolarHaciaObjetivo();
+    aplicarAngulos();
+    renderer.render(escena, camara);
+  });
+}
+animar();
+
+window.addEventListener("resize", () => {
+  camara.aspect = window.innerWidth / window.innerHeight;
+  camara.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ══════════════════════════════════════════════════════════════
+//  CONEXION WEBSOCKET — recibe secuencias desde el servidor Python
+// ══════════════════════════════════════════════════════════════
+
+const TRADUCCIONES = {
+  "Hola": "Hola",
+  "Gracias": "Gracias",
+  "Si": "Sí / Afirmativo",
+  "No": "No / Negativo",
+  "Bien": "Bien / Estoy bien",
+  "Mal": "Mal / No estoy bien",
+  "Silencio": "Silencio / Guarda silencio",
+};
+
+let ws = null;
+let colaSecuencias = [];
+let ejecutandoSecuencia = false;
+
+function conectarWebSocket() {
+  const url = `ws://${window.location.hostname}:8766`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    document.getElementById("dot-conexion").classList.add("activo");
+    document.getElementById("texto-conexion").textContent = "Conectado al servidor";
+  };
+
+  ws.onclose = () => {
+    document.getElementById("dot-conexion").classList.remove("activo");
+    document.getElementById("texto-conexion").textContent = "Desconectado, reintentando...";
+    setTimeout(conectarWebSocket, 2000);
+  };
+
+  ws.onerror = () => {
+    document.getElementById("texto-conexion").textContent = "Error de conexion";
+  };
+
+  ws.onmessage = (evento) => {
+    const datos = JSON.parse(evento.data);
+    colaSecuencias.push(datos);
+    if (!ejecutandoSecuencia) {
+      procesarSiguienteSecuencia();
+    }
+  };
+}
+
+async function procesarSiguienteSecuencia() {
+  if (colaSecuencias.length === 0) {
+    ejecutandoSecuencia = false;
+    return;
+  }
+  ejecutandoSecuencia = true;
+  const secuencia = colaSecuencias.shift();
+
+  for (const paso of secuencia.pasos) {
+    await ejecutarPaso(paso, secuencia.pasos.length);
+  }
+
+  // Volver a reposo
+  Object.keys(angulosObjetivo).forEach(k => angulosObjetivo[k] = 0);
+  document.getElementById("sena-actual").textContent = "—";
+  document.getElementById("traduccion-actual").textContent = "Esperando texto o voz...";
+  document.getElementById("barra-progreso-fill").style.width = "0%";
+
+  procesarSiguienteSecuencia();
+}
+
+function ejecutarPaso(paso, total) {
+  return new Promise((resolve) => {
+    const art = paso.articulaciones;
+    console.log("Paso recibido:", paso.sena, art);
+    angulosObjetivo.hombroDerPitch = art["hombro_der_pitch"] || 0;
+    angulosObjetivo.hombroDerRoll = art["hombro_der_roll"] || 0;
+    angulosObjetivo.codoDer = art["codo_der"] || 0;
+    angulosObjetivo.muñecaDerPitch = art["muñeca_der_pitch"] || 0;
+    angulosObjetivo.muñecaDerYaw = art["muñeca_der_yaw"] || 0;
+    angulosObjetivo.hombroIzqPitch = art["hombro_izq_pitch"] || 0;
+    angulosObjetivo.hombroIzqRoll = art["hombro_izq_roll"] || 0;
+    angulosObjetivo.codoIzq = art["codo_izq"] || 0;
+    angulosObjetivo.muñecaIzqPitch = art["muñeca_izq_pitch"] || 0;
+    angulosObjetivo.muñecaIzqYaw = art["muñeca_izq_yaw"] || 0;
+    angulosObjetivo.flexionManoDer = FLEXION_POR_SEÑA[paso.sena] ?? 0;
+    angulosObjetivo.flexionManoIzq = FLEXION_POR_SEÑA[paso.sena] ?? 0;
+
+    document.getElementById("sena-actual").textContent = paso.sena;
+    document.getElementById("traduccion-actual").textContent =
+      TRADUCCIONES[paso.sena] || paso.sena;
+    document.getElementById("progreso-secuencia").textContent =
+      `Paso ${paso.indice + 1} / ${total}`;
+    document.getElementById("barra-progreso-fill").style.width =
+      `${((paso.indice + 1) / total) * 100}%`;
+
+    agregarAlHistorial(paso.sena);
+
+    setTimeout(resolve, paso.duracion * 1000);
+  });
+}
+
+function agregarAlHistorial(nombreSena) {
+  const lista = document.getElementById("lista-historial");
+  const item = document.createElement("div");
+  item.className = "historial-item";
+  const hora = new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  item.textContent = `${hora}  ${nombreSena}`;
+  lista.insertBefore(item, lista.firstChild);
+  while (lista.children.length > 15) {
+    lista.removeChild(lista.lastChild);
+  }
+}
+
+conectarWebSocket();
+
+// ══════════════════════════════════════════════════════════════
+//  SOPORTE WebXR (Meta Quest Pro y otros visores VR)
+// ══════════════════════════════════════════════════════════════
+
+const botonVR = document.getElementById("boton-vr");
+
+if ("xr" in navigator) {
+  navigator.xr.isSessionSupported("immersive-vr").then((soportado) => {
+    if (soportado) {
+      botonVR.textContent = "Entrar en VR";
+      botonVR.disabled = false;
+      botonVR.onclick = async () => {
+        const sesion = await navigator.xr.requestSession("immersive-vr");
+        renderer.xr.setSession(sesion);
+      };
+    } else {
+      botonVR.textContent = "VR no disponible en este dispositivo";
+    }
+  });
+} else {
+  botonVR.textContent = "WebXR no soportado en este navegador";
+}
+</script>
+</body>
+</html>
