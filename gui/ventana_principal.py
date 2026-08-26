@@ -51,7 +51,7 @@ class VentanaPrincipal:
     # ── Arranque ──────────────────────────────────────────────────
 
     def ejecutar(self):
-        """Crea la ventana y entra al bucle principal de Tk."""
+        """Crea la ventana y entra al bucle principal de Tk (modo autónomo)."""
         self._raiz = tk.Tk()
         self._raiz.title(self.TITULO)
         self._raiz.minsize(self.ANCHO_MIN, self.ALTO_MIN)
@@ -66,6 +66,7 @@ class VentanaPrincipal:
             except Exception:
                 pass
 
+        self._contenedor = self._raiz  # los widgets cuelgan de la raíz
         self._configurar_estilos()
         self._construir_ui()
         self._iniciar_sistemas()
@@ -74,14 +75,39 @@ class VentanaPrincipal:
         log.info("Ventana principal iniciada")
         self._raiz.mainloop()
 
-    def _al_cerrar(self):
-        log.info("Cerrando LSC Bridge...")
+    def montar_en(self, contenedor, raiz):
+        """Construye la UI de la cámara dentro de un contenedor externo
+        (una pestaña del Notebook), compartiendo la raíz de la app unificada.
+
+        No crea su propio tk.Tk() ni mainloop: eso lo maneja AppUnificada.
+        """
+        self._raiz = raiz              # se usa para .after(...) desde los hilos
+        self._contenedor = contenedor  # los widgets cuelgan de la pestaña
+        self._configurar_estilos()
+        self._construir_ui()
+        self._iniciar_sistemas()
+        self._activa = True
+        log.info("Panel de cámara montado en pestaña")
+
+    def cerrar(self):
+        """Libera cámara, robot y reconocedor sin destruir la raíz.
+        (La raíz la destruye AppUnificada.)"""
         self._activa = False
         self._detener_camara()
         if self._robot:
-            self._robot.desconectar()
+            try:
+                self._robot.desconectar()
+            except Exception:
+                pass
         if self._reconocedor:
-            self._reconocedor.detener()
+            try:
+                self._reconocedor.detener()
+            except Exception:
+                pass
+
+    def _al_cerrar(self):
+        log.info("Cerrando LSC Bridge...")
+        self.cerrar()
         self._raiz.quit()
         self._raiz.destroy()
 
@@ -98,7 +124,8 @@ class VentanaPrincipal:
         texto        = "#e2e8f0"
         texto_sec    = "#94a3b8"
 
-        self._raiz.configure(bg=fondo_oscuro)
+        if getattr(self, "_contenedor", self._raiz) is self._raiz:
+            self._raiz.configure(bg=fondo_oscuro)
         self._colores = {
             "fondo":      fondo_oscuro,
             "panel":      fondo_panel,
@@ -134,14 +161,16 @@ class VentanaPrincipal:
     def _construir_ui(self):
         c = self._colores
 
+        cont = getattr(self, "_contenedor", self._raiz)
+
         # Barra de herramientas
-        self._barra = tk.Frame(self._raiz, bg=c["acento"], height=48)
+        self._barra = tk.Frame(cont, bg=c["acento"], height=48)
         self._barra.pack(fill="x", side="top")
         self._barra.pack_propagate(False)
         self._construir_barra()
 
         # Contenedor central
-        central = ttk.Frame(self._raiz)
+        central = ttk.Frame(cont)
         central.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Panel izquierdo: cámara
@@ -161,7 +190,7 @@ class VentanaPrincipal:
         self._construir_panel_info()
 
         # Barra de estado
-        self._barra_estado = tk.Frame(self._raiz, bg=c["acento"], height=28)
+        self._barra_estado = tk.Frame(cont, bg=c["acento"], height=28)
         self._barra_estado.pack(fill="x", side="bottom")
         self._barra_estado.pack_propagate(False)
         self._construir_barra_estado()

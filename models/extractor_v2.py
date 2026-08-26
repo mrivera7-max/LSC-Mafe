@@ -37,8 +37,12 @@ except ImportError as e:
 # Referencia: contorno exterior e interior de labios
 PUNTOS_BOCA = [61, 291, 0, 17, 78, 308, 13, 14]  # 8 puntos representativos de labios
 
-RUTA_MODELO_MANO = "data/hand_landmarker.task"
-RUTA_MODELO_CARA = "data/face_landmarker.task"
+# Rutas ancladas a la raíz del proyecto (carpeta que contiene 'models/' y 'data/'),
+# NO al directorio de trabajo. Esto evita que el extractor falle cuando corre desde
+# un hilo (p.ej. el bucle de cámara) o cuando se ejecuta desde otra carpeta.
+_RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
+RUTA_MODELO_MANO = str(_RAIZ_PROYECTO / "data" / "hand_landmarker.task")
+RUTA_MODELO_CARA = str(_RAIZ_PROYECTO / "data" / "face_landmarker.task")
 
 # Tamaño de la ventana temporal (frames) para una "muestra" de seña dinámica
 VENTANA_FRAMES = 20

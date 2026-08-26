@@ -72,6 +72,12 @@ class ReconocedorLSCv2:
         self._frames_desde_ultima_emision = 0
         self._cooldown_frames = 15  # evitar re-emitir la misma seña muy seguido
 
+        # Suavizado por votación: acumula las últimas N predicciones y emite
+        # solo cuando hay consenso. Filtra el ruido de detección frame a frame.
+        self._historial_pred = deque(maxlen=7)   # últimas 7 predicciones (seña, conf)
+        self._min_votos = 4                       # nº mínimo que deben coincidir
+        self._min_conf_voto = 0.55                # confianza mínima para contar un voto
+
     def iniciar(self) -> bool:
         if not self._extractor.iniciar():
             return False
@@ -112,23 +118,48 @@ class ReconocedorLSCv2:
         if len(self._buffer_frames) < VENTANA_FRAMES:
             return None  # esperar a llenar la ventana
 
-        if self._frames_desde_ultima_emision < self._cooldown_frames:
-            return None  # cooldown tras una emisión
-
-        # Clasificar la ventana actual
+        # Clasificar la ventana actual y acumular en el historial de votación
         vector = self._extractor.agregar_secuencia(list(self._buffer_frames))
         nombre, confianza = self._clasificar(vector)
 
-        if confianza < self.config.umbral_confianza:
+        # Solo cuenta como voto si supera una confianza mínima (más laxa que el
+        # umbral final). Predicciones muy dudosas no ensucian la votación.
+        if confianza >= self._min_conf_voto:
+            self._historial_pred.append((nombre, confianza))
+
+        # ¿Ya pasó el cooldown desde la última emisión?
+        if self._frames_desde_ultima_emision < self._cooldown_frames:
             return None
 
-        self._ultima_sena_emitida = nombre
+        # Contar votos por seña en la ventana de historial
+        if len(self._historial_pred) < self._min_votos:
+            return None
+
+        votos = {}
+        conf_acum = {}
+        for n, c in self._historial_pred:
+            votos[n] = votos.get(n, 0) + 1
+            conf_acum[n] = conf_acum.get(n, 0.0) + c
+
+        # Seña más votada
+        nombre_ganador = max(votos, key=votos.get)
+        n_votos = votos[nombre_ganador]
+        conf_media = conf_acum[nombre_ganador] / n_votos
+
+        # Emitir solo si hay consenso suficiente Y la confianza media supera el umbral
+        if n_votos < self._min_votos:
+            return None
+        if conf_media < self.config.umbral_confianza:
+            return None
+
+        self._ultima_sena_emitida = nombre_ganador
         self._frames_desde_ultima_emision = 0
+        self._historial_pred.clear()  # reiniciar votación tras emitir
 
         return SenaDetectadaV2(
-            nombre=nombre,
-            traduccion=TRADUCCIONES_LSC.get(nombre, nombre),
-            confianza=confianza,
+            nombre=nombre_ganador,
+            traduccion=TRADUCCIONES_LSC.get(nombre_ganador, nombre_ganador),
+            confianza=conf_media,
             fps=round(self._fps_actual, 1),
         )
 
@@ -170,7 +201,11 @@ class ReconocedorLSCv2:
             return "Desconocida", 0.0
 
     def _cargar_clasificador(self):
-        ruta = Path(getattr(self.config, "modelo_pesos_v2", "data/lsc_model_v2.pkl"))
+        raiz_proyecto = Path(__file__).resolve().parent.parent
+        ruta_config = getattr(self.config, "modelo_pesos_v2", "data/lsc_model_v2.pkl")
+        ruta = Path(ruta_config)
+        if not ruta.is_absolute():
+            ruta = raiz_proyecto / ruta
         if not ruta.exists():
             log.warning(f"Modelo v2 no encontrado en '{ruta}'.")
             return

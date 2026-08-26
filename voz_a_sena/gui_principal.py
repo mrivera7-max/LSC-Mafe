@@ -28,22 +28,55 @@ class VentanaVozASena:
     def __init__(self):
         self.servidor = ServidorVozASena()
         self._raiz = None
+        self._contenedor = None
         self._escuchando = False
+        self._servidor_iniciado = False
 
     def ejecutar(self):
+        """Modo autónomo: crea su propia ventana y mainloop."""
         self._raiz = tk.Tk()
         self._raiz.title(self.TITULO)
         self._raiz.geometry("640x560")
         self._raiz.configure(bg="#1a1a2e")
         self._raiz.protocol("WM_DELETE_WINDOW", self._cerrar)
 
+        self._contenedor = self._raiz
         self._construir_ui()
 
         log.info("Iniciando servidores HTTP y WebSocket...")
         self.servidor.iniciar_servidores()
+        self._servidor_iniciado = True
 
         self._raiz.after(800, self._abrir_visor)
         self._raiz.mainloop()
+
+    def montar_en(self, contenedor, raiz):
+        """Construye la UI de voz dentro de un contenedor externo (pestaña),
+        compartiendo la raíz de la app unificada. No crea tk.Tk() ni mainloop.
+
+        El servidor HTTP/WebSocket se arranca aquí, pero el visor 3D NO se
+        abre solo: se abre cuando el usuario pulsa el botón (evita lanzar el
+        navegador al iniciar la app). El avatar sigue en el navegador porque
+        es WebGL y Tkinter no lo puede incrustar.
+        """
+        self._raiz = raiz
+        self._contenedor = contenedor
+        self._construir_ui()
+
+        log.info("Iniciando servidores HTTP y WebSocket (pestaña voz)...")
+        self.servidor.iniciar_servidores()
+        self._servidor_iniciado = True
+        self._agregar_log("Servidor listo. Pulsa «↗ Abrir visor 3D» para ver el avatar.")
+        log.info("Panel de voz montado en pestaña")
+
+    def cerrar(self):
+        """Detiene el servidor sin destruir la raíz."""
+        try:
+            detener = getattr(self.servidor, "detener_servidores", None)
+            if callable(detener):
+                detener()
+        except Exception:
+            pass
 
     def _abrir_visor(self):
         url = f"http://localhost:{PUERTO_HTTP}"
@@ -58,8 +91,10 @@ class VentanaVozASena:
         c_acento = "#2563eb"
         c_verde = "#22c55e"
 
+        cont = self._contenedor
+
         # Encabezado
-        encabezado = tk.Frame(self._raiz, bg=c_acento, height=60)
+        encabezado = tk.Frame(cont, bg=c_acento, height=60)
         encabezado.pack(fill="x")
         tk.Label(encabezado, text="◈ LSC UDI", bg=c_acento, fg="white",
                  font=("Segoe UI", 16, "bold")).pack(side="left", padx=16, pady=14)
@@ -74,7 +109,7 @@ class VentanaVozASena:
         boton_visor.pack(side="right", padx=16, pady=14)
 
         # Panel de entrada de texto
-        panel_texto = tk.Frame(self._raiz, bg=c_panel, padx=20, pady=16)
+        panel_texto = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
         panel_texto.pack(fill="x", padx=16, pady=(16, 8))
 
         tk.Label(panel_texto, text="ESCRIBE UN TEXTO PARA TRADUCIR", bg=c_panel,
@@ -97,7 +132,7 @@ class VentanaVozASena:
         ).pack(side="left")
 
         # Panel de voz
-        panel_voz = tk.Frame(self._raiz, bg=c_panel, padx=20, pady=16)
+        panel_voz = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
         panel_voz.pack(fill="x", padx=16, pady=8)
 
         tk.Label(panel_voz, text="O USA TU VOZ", bg=c_panel,
@@ -112,7 +147,7 @@ class VentanaVozASena:
         self._boton_voz.pack(fill="x", pady=(8, 0))
 
         # Resultado de la ultima traduccion
-        panel_resultado = tk.Frame(self._raiz, bg=c_panel, padx=20, pady=16)
+        panel_resultado = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
         panel_resultado.pack(fill="x", padx=16, pady=8)
 
         tk.Label(panel_resultado, text="ULTIMA TRADUCCION", bg=c_panel,
@@ -135,7 +170,7 @@ class VentanaVozASena:
         self._texto_pendiente_ensenar = ""
 
         # Log de actividad
-        panel_log = tk.Frame(self._raiz, bg=c_panel, padx=20, pady=16)
+        panel_log = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
         panel_log.pack(fill="both", expand=True, padx=16, pady=(8, 16))
 
         tk.Label(panel_log, text="ACTIVIDAD", bg=c_panel,
