@@ -45,10 +45,11 @@ _clientes_conectados = set()
 
 def _iniciar_servidor_http():
     """Sirve los archivos estaticos (HTML/JS del visor 3D) en un hilo separado."""
-    import os
-    os.chdir(DIR_ESTATICOS)
 
     class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(DIR_ESTATICOS), **kwargs)
+
         def log_message(self, format, *args):
             pass  # silenciar logs de cada request
 
