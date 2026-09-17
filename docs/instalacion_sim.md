@@ -52,7 +52,45 @@ Terminal 2:  source \~/lsc-sim/bin/activate \&\& cd \~/unitree\_mujoco/simulate\
 
 
 
-\## Pendiente
+\## Resuelto
 
-\- Mallas negras en el visor MuJoCo (render por software en WSL2)
+\- Mallas negras / pantalla negra en el visor MuJoCo: export LIBGL\_ALWAYS\_SOFTWARE=1 (añadido a \~/.bashrc)
+
+
+
+\## Fase 2 — Ejemplo low-level verificado (16/09/2026)
+
+Script: \~/unitree\_sdk2\_python/example/g1/low\_level/g1\_low\_level\_example.py
+
+Adaptaciones necesarias para el simulador:
+
+\- Línea \~95: `while result\['name']:` -> `while result and result.get('name'):`
+
+&#x20; (el simulador no tiene MotionSwitcherClient; con el robot real funciona igual)
+
+\- Línea \~196: `ChannelFactoryInitialize(0, ...)` -> `ChannelFactoryInitialize(1, ...)`
+
+&#x20; (el simulador usa DOMAIN\_ID = 1; con el robot real volver a 0)
+
+Ejecutar: python g1\_low\_level\_example.py lo
+
+Resultado: el G1 colgado mueve brazos y piernas. Canal Python -> DDS -> robot confirmado.
+
+
+
+\## Fase 3 — Script propio (en curso)
+
+Objetivo: mover left\_shoulder\_pitch (índice 15) a un ángulo dado con interpolación
+
+suave y verificar por LowState.
+
+Ubicación: robot\_sim/mover\_joint.py (repo clonado también en WSL: \~/LSC-Mafe)
+
+Índices de brazos (G1 29 DOF):
+
+\- Izquierdo 15-21: shoulder\_pitch, shoulder\_roll, shoulder\_yaw, elbow, wrist\_roll, wrist\_pitch, wrist\_yaw
+
+\- Derecho   22-28: mismo orden
+
+
 
