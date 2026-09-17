@@ -110,6 +110,7 @@ class ControlG1:
             time.sleep(0.1)
 
         q0 = np.array(self.postura_base)
+        q0[:15] = 0.0  # piernas y cintura rectas (pelvis anclada al mundo)
         self._q_from = q0.copy()
         self._q_to = q0.copy()
         self._q_des = q0.copy()
@@ -147,7 +148,7 @@ class ControlG1:
         self.pub.Write(self.low_cmd)
 
     # ── API pública ───────────────────────────────────────────────────
-    def ir_a(self, objetivos: dict, duracion: float):
+    def ir_a(self, objetivos: dict, duracion: float, esperar: bool = True):
         """Lleva los joints indicados a sus ángulos en `duracion` s.
         Los joints no indicados conservan su consigna actual. Bloqueante."""
         with self._lock:
@@ -157,7 +158,8 @@ class ControlG1:
                 self._q_to[idx] = q
             self._dur = max(duracion, 0.05)
             self._t0 = time.time()
-        time.sleep(self._dur)
+        if esperar:
+            time.sleep(self._dur)
 
     def reposo(self, duracion: float = 1.5):
         """Brazos a la postura en que estaba el robot al arrancar."""
