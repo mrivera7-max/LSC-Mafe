@@ -94,3 +94,25 @@ Ubicación: robot\_sim/mover\_joint.py (repo clonado también en WSL: \~/LSC-Maf
 
 
 
+| Joint            | Índice | Signo + significa       |
+
+|------------------|--------|-------------------------|
+
+| LeftShoulderPitch| 15     | brazo hacia atrás (al frente=negativo       |
+
+| LeftShoulderRoll | 16     | brazo se abre lateralmente (abducción)                    |
+
+&#x20; LeftShoulderYaw    17       rotación del brazo sobre su eje (codo gira hacia fuera)
+
+&#x20; joint LeftElbow    18       flexión del codo (antebrazo se cierra)
+
+&#x20; joint LeftWristPitch 20     mano baja (flexión)
+
+
+
+\## Fase 4: "verificada con Hola, error máx 4° (gravedad, kp=40); SIGNOS del brazo derecho: roll -1, yaw -1 confirmados".
+
+
+
+"Escena de pie (scene\_lsc.xml, pelvis soldada) probada; descartada por ahora porque sin controlador el tronco se vence. Se trabaja colgado (banda elástica)."
+
