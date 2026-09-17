@@ -330,10 +330,10 @@ class ConectorG1:
             self.on_estado_cambio(nuevo)
 
     def _intentar_importar_sdk(self):
-        """Intenta importar el SDK de Unitree."""
+        """Devuelve el cliente del puente G1 (robot_sim/puente_g1.py)."""
         try:
-            import unitree_sdk2py as sdk
-            return sdk
+            from robot.cliente_puente import ClientePuenteG1
+            return ClientePuenteG1()
         except ImportError:
             return None
 

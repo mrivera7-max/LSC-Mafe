@@ -2,7 +2,7 @@
 Interfaz grafica del sistema Voz/Texto -> Sena LSC.
 
 Permite escribir texto o usar el microfono, y muestra la traduccion
-mientras se transmite al visor 3D.
+mientras se transmite al visor 3D y al robot G1 (si está conectado).
 """
 
 import logging
@@ -27,6 +27,7 @@ class VentanaVozASena:
 
     def __init__(self):
         self.servidor = ServidorVozASena()
+        self.robot = None  # ConectorG1 compartido; lo asigna app_unificada.py
         self._raiz = None
         self._contenedor = None
         self._escuchando = False
@@ -225,6 +226,13 @@ class VentanaVozASena:
             self._lbl_secuencia.configure(text="  →  ".join(señas))
             self._agregar_log(f"Secuencia generada: {' -> '.join(señas)}")
 
+            # Enviar también al robot G1 (simulador o real) si está conectado
+            if self.robot is not None and self.robot.conectado:
+                threading.Thread(target=self._enviar_al_robot, args=(señas,),
+                                 daemon=True).start()
+            elif self.robot is not None:
+                self._agregar_log("Robot G1 no conectado: pulsa 'Conectar G1' en la pestaña Cámara")
+
             no_reconocidas = resultado.get("no_reconocidas", [])
             if no_reconocidas:
                 self._lbl_no_reconocidas.configure(
@@ -242,6 +250,13 @@ class VentanaVozASena:
             no_reconocidas = resultado.get("no_reconocidas", [])
             if no_reconocidas:
                 self._mostrar_boton_ensenar(" ".join(no_reconocidas))
+
+    def _enviar_al_robot(self, señas):
+        """Ejecuta la secuencia en el G1, una seña tras otra (hilo aparte)."""
+        for s in señas:
+            self.robot.enviar_seña(s)
+        self._raiz.after(0, self._agregar_log,
+                         f"Robot G1: ejecutada {' -> '.join(señas)}")
 
     def _mostrar_boton_ensenar(self, frase_pendiente: str):
         """Muestra el boton 'Ensenar' para mapear una frase no reconocida a una sena."""

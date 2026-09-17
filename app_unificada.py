@@ -88,6 +88,7 @@ class AppUnificada:
 
         self.panel_voz = VentanaVozASena()
         self.panel_voz.montar_en(tab_voz, self._raiz)
+        self.panel_voz.robot = self.panel_camara._robot  # compartir el conector
 
         log.info("Ventana unificada iniciada (2 pestañas)")
         self._raiz.mainloop()

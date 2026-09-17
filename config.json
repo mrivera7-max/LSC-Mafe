@@ -18,8 +18,8 @@
     "Silencio",
     "Si"
   ],
-  "robot_activo": false,
-  "robot_ip": "192.168.123.161",
+  "robot_activo": true,
+  "robot_ip": "127.0.0.1",
   "robot_puerto": 8080,
   "robot_modo": "espejo",
   "robot_timeout": 5.0,
