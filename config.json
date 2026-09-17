@@ -8,7 +8,7 @@
   "num_manos": 2,
   "modelo_pesos": "data/lsc_model.pkl",
   "modelo_pesos_v2": "data/lsc_model_v2.pkl",
-  "usar_v2": false,
+  "usar_v2": true,
   "clases_lsc": [
     "Bien",
     "Gracias",

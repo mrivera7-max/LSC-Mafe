@@ -6,3 +6,5 @@ data/signs/
 data/lsc_model.pkl 
 data/hand_landmarker.task 
 data/face_landmarker.task 
+
+venv/

@@ -132,7 +132,7 @@ def main():
     config = Configuracion(args.config)
     config.camara_idx = args.camara
     config.robot_activo = not args.sin_robot
-    config.usar_v2 = args.v2
+    config.usar_v2 = args.v2 or config.usar_v2
 
     app = AppUnificada(config)
     app.ejecutar()
