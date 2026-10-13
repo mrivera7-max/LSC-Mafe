@@ -8,3 +8,7 @@ data/hand_landmarker.task
 data/face_landmarker.task 
 
 venv/
+*.bak_lsc
+*.bak_gracias
+__pycache__/
+venv/

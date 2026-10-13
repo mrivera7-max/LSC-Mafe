@@ -43,6 +43,7 @@ except ImportError:  # se avisa al llamar a conectar()
     zmq = None
 
 from robot.conector_g1 import POSTURAS_G1, ComandoArticular
+from robot.mano_inspire import SalidaInspireDDS, a_dex3, cargar_formas
 
 log = logging.getLogger("lsc_bridge.conector_sonic")
 
@@ -95,7 +96,8 @@ CAMPOS_A_MJ = {
 # con más amplitud, más tiempo y, cuando la seña lo pide, oscilación
 # (saludo, sí, no). Valores absolutos por índice MuJoCo (brazo derecho 22..28):
 #   22 hombro pitch (− = adelante/arriba)   23 hombro roll (− = separa del cuerpo)
-#   24 hombro yaw   25 codo (+ = flexiona)  26 muñeca roll
+#   24 hombro yaw   25 codo (0 = antebrazo horizontal; + BAJA el antebrazo,
+#                            − lo SUBE hacia la cara; rango −1.05..2.09)  26 muñeca roll
 #   27 muñeca pitch 28 muñeca yaw
 # Cada fotograma: ({índice: rad}, duración_s). El resto de joints conserva su valor.
 
@@ -109,27 +111,55 @@ def _osc(mj: int, centro: float, amp: float, n: int, dur: float = 0.35, extra=No
     return kf
 
 
-_MANO_ARRIBA = {22: -1.35, 23: -0.45, 24: 0.0, 25: 1.45, 26: 0.0, 27: 0.0, 28: 0.0}
+# Poses calculadas con cinemática inversa sobre el MJCF del G1 y comprobadas con
+# robot/verificar_sena.py (posición de la mano y del pulgar respecto a la pelvis).
+#
+# Mano (Inspire RH56DFTP-2R): cada fotograma puede llevar un tercer elemento
+#   {"der": <seña o 6 valores 0..1>, "izq": ...}   (1 = abierto, 0 = cerrado; ver robot/mano_inspire.py)
+# Si se omite, la mano derecha toma la forma de la propia seña (data/formas_mano_lsc.json, sacada de
+# los datos del repositorio) desde el primer fotograma y la izquierda queda en reposo.
+_HOLA = {22: -0.52, 23: -0.73, 24: -0.67, 25: -0.58, 26: -0.74, 27: 0.04, 28: -0.21}
+
+# Brazo izquierdo (15..21) = espejo del derecho (22..28): roll y yaw cambian de signo.
+_ESPEJO = {22: (15, 1), 23: (16, -1), 24: (17, -1), 25: (18, 1), 26: (19, -1), 27: (20, 1), 28: (21, -1)}
+
+
+def _espejo(der: dict) -> dict:
+    return {izq: signo * der[d] for d, (izq, signo) in _ESPEJO.items() if d in der}
+
+
+_GRACIAS_1 = {22: -0.24, 23: -0.68, 24: 0.83, 25: -0.78, 26: 0.42, 27: -1.06, 28: -0.14}
+_GRACIAS_2 = {22: -0.28, 23: -0.04, 24: -0.10, 25: -0.72, 26: 0.12, 27: 1.09, 28: -0.08}
+_MANOS_GRACIAS = {"der": "Gracias", "izq": "Gracias"}
 
 SEÑAS_SONIC = {
-    "Hola": [(_MANO_ARRIBA, 1.0)] + _osc(28, 0.0, 0.7, 3) + [({28: 0.0}, 0.3)],
+    # mano abierta junto a la cabeza, palma al frente; saluda moviendo la muñeca de lado a lado
+    "Hola": [(_HOLA, 1.1)] + _osc(27, 0.04, 0.55, 3, 0.32) + [({27: 0.04}, 0.3)],
+    # mano plana desde la barbilla hacia adelante
+    # ambas manos planas desde la barbilla hacia adelante (en data/sequences las dos manos aparecen abiertas)
     "Gracias": [
-        ({22: -1.25, 23: -0.15, 25: 1.75, 27: -0.4}, 1.0),   # mano en la boca
-        ({22: -0.55, 23: -0.25, 25: 0.95, 27: -0.1}, 1.0),   # se aleja hacia adelante
+        ({**_GRACIAS_1, **_espejo(_GRACIAS_1)}, 1.0, _MANOS_GRACIAS),
+        ({**_GRACIAS_2, **_espejo(_GRACIAS_2)}, 1.0, _MANOS_GRACIAS),
     ],
-    "Si": [({22: -0.7, 23: -0.2, 25: 1.2, 27: 0.0}, 0.9)]
-          + _osc(27, 0.0, 0.6, 2, 0.3) + [({27: 0.0}, 0.3)],
-    "No": [({22: -0.9, 23: -0.3, 25: 1.4, 27: 0.0}, 0.9)]
-          + _osc(28, 0.0, 0.75, 2, 0.3) + [({28: 0.0}, 0.3)],
+    # puño frente al pecho que asiente (cabeceo de la muñeca)
+    "Si": [({22: -0.08, 23: -0.08, 24: 0.0, 25: -0.58, 26: 0.11, 27: 0.75, 28: -0.08}, 0.9)]
+          + _osc(27, 0.75, 0.4, 2, 0.3) + [({27: 0.75}, 0.3)],
+    # índice arriba que se mueve de lado a lado
+    "No": [({22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -0.44, 27: -1.13, 28: 0.01}, 1.0)]
+          + _osc(26, -0.44, 0.45, 3, 0.28) + [({26: -0.44}, 0.3)],
+    # puño con el pulgar arriba: del pecho hacia adelante
     "Bien": [
-        ({22: -0.9, 23: -0.2, 25: 1.7, 26: 0.0, 27: 0.0}, 0.9),  # puño al pecho
-        ({22: -1.2, 23: -0.3, 25: 1.0, 27: 0.3}, 0.9),           # pulgar arriba adelante
+        ({22: 0.37, 23: -0.08, 24: 0.41, 25: -0.57, 26: -0.14, 27: -0.10, 28: -0.29}, 0.9),
+        ({22: -0.37, 23: -0.11, 24: -0.06, 25: -0.51, 26: 0.11, 27: 0.58, 28: -0.09}, 0.9),
     ],
+    # puño que gira hasta apuntar el pulgar hacia abajo (el brazo se abre porque el G1 no tiene pronación)
     "Mal": [
-        ({22: -1.0, 23: -0.2, 25: 1.6, 27: 0.4}, 0.9),
-        ({22: -0.1, 23: -0.5, 25: 0.7, 27: -0.9}, 0.9),          # mano gira hacia abajo
+        ({22: -0.05, 23: -0.02, 24: 0.11, 25: -0.97, 26: 0.04, 27: 1.00, 28: -0.16}, 0.9),
+        ({22: -0.20, 23: -1.26, 24: 0.54, 25: -0.47, 26: -1.60, 27: 0.01, 28: 0.21}, 1.2),
     ],
-    "Silencio": [({22: -1.45, 23: -0.1, 25: 1.95, 27: 0.0}, 1.0), ({}, 1.0)],  # dedo a los labios
+    # índice sobre los labios, quieto
+    "Silencio": [({22: -0.36, 23: -0.13, 24: 1.05, 25: -0.64, 26: 0.32, 27: -0.93, 28: -0.11}, 1.1),
+                 ({}, 1.0)],
 }
 
 
@@ -174,7 +204,7 @@ def empaquetar_comando(start: bool, stop: bool, planner: bool) -> bytes:
 
 
 def empaquetar_planner(upper_body_position, upper_body_velocity=None,
-                       mode: int = MODO_IDLE) -> bytes:
+                       mode: int = MODO_IDLE, left_hand=None, right_hand=None) -> bytes:
     campos = [
         ("mode", "i32", [mode]),
         ("movement", "f32", [0.0, 0.0, 0.0]),
@@ -185,6 +215,11 @@ def empaquetar_planner(upper_body_position, upper_body_velocity=None,
     ]
     if upper_body_velocity is not None:
         campos.append(("upper_body_velocity", "f32", np.asarray(upper_body_velocity).reshape(17)))
+    # manos Dex3 (7 articulaciones c/u); el deploy las aplica a rt/dex3/{left,right}/cmd
+    if left_hand is not None:
+        campos.append(("left_hand_joints", "f32", np.asarray(left_hand).reshape(7)))
+    if right_hand is not None:
+        campos.append(("right_hand_joints", "f32", np.asarray(right_hand).reshape(7)))
     return _empaquetar(TOPIC_PLANNER, campos)
 
 
@@ -200,7 +235,8 @@ class ConectorSonic:
     def __init__(self, host: str = "*", puerto: int = 5556, hz: float = 50.0,
                  real: bool = False, escala: Optional[float] = None,
                  factor_tiempo: Optional[float] = None,
-                 vel_max: Optional[float] = None):
+                 vel_max: Optional[float] = None, manos: str = "auto",
+                 interfaz_dds: str = ""):
         """
         real           True cuando el deploy mueve el G1 físico (no MuJoCo).
         escala         0..1: fracción de la amplitud de cada seña respecto a la postura
@@ -209,6 +245,12 @@ class ConectorSonic:
                        Por defecto 1.5 en real, 1.0 en sim.
         vel_max        tope de velocidad articular en rad/s (alarga el tramo si hace falta).
                        Por defecto 1.2 en real, sin tope en sim.
+        manos          dónde se mueven los dedos (mano Inspire RH56DFTP-2R, 6 valores por mano):
+                         "auto"     simulador -> "dex3";  robot real -> "inspire"
+                         "dex3"     en el planner de SONIC, como manos Dex3 de 7 articulaciones (MuJoCo)
+                         "inspire"  por DDS rt/inspire_hand/ctrl/{l,r} (manos Inspire físicas)
+                         "ambas"    las dos salidas;   "ninguna"  no se mueven los dedos
+        interfaz_dds   interfaz de red para DDS de las manos Inspire (p. ej. "enp131s0"); vacío = por defecto.
         """
         self.host = host
         self.puerto = puerto
@@ -220,6 +262,15 @@ class ConectorSonic:
                                    else (1.5 if real else 1.0))
         self.vel_max = vel_max if vel_max is not None else (1.2 if real else None)
         self.detenido = False   # True tras parada_emergencia(): no se acepta más movimiento
+        self.aviso_manos: Optional[str] = None   # motivo si las manos Inspire no se pudieron abrir
+        if manos == "auto":
+            manos = "inspire" if real else "dex3"
+        if manos not in ("dex3", "inspire", "ambas", "ninguna"):
+            raise ValueError(f"manos debe ser auto|dex3|inspire|ambas|ninguna, no {manos!r}")
+        self.manos = manos
+        self.interfaz_dds = interfaz_dds
+        self.formas = cargar_formas()                 # {seña: 6 valores 0..1}
+        self.salida_inspire: Optional[SalidaInspireDDS] = None
         if not 0.0 < self.escala <= 1.0:
             raise ValueError("escala debe estar en (0, 1]")
         if self.factor_tiempo < 1.0 and real:
@@ -238,6 +289,10 @@ class ConectorSonic:
         self._q_to = base.copy()
         self._t0 = time.monotonic()
         self._dur = 1.0
+        # Manos: 12 valores normalizados (6 derecha + 6 izquierda), 1 = abierta
+        reposo_mano = self.formas["REPOSO"]
+        self._h_from = np.concatenate([reposo_mano, reposo_mano])
+        self._h_to = self._h_from.copy()
 
     # ── Conexión ─────────────────────────────────────────────────────
     def conectar(self) -> bool:
@@ -258,6 +313,15 @@ class ConectorSonic:
             log.error(self.error)
             self._liberar()
             return False
+
+        if self.manos in ("inspire", "ambas"):
+            self.salida_inspire = SalidaInspireDDS(self.interfaz_dds)
+            if self.salida_inspire.abrir():
+                log.info("Manos Inspire: publicando en rt/inspire_hand/ctrl/{l,r}")
+            else:
+                self.aviso_manos = self.salida_inspire.error
+                log.warning(self.aviso_manos)
+                self.salida_inspire = None
 
         time.sleep(0.5)  # da tiempo a que el deploy (subscriptor) se enganche
         self.error = None
@@ -285,6 +349,7 @@ class ConectorSonic:
         # (ZMQ PUB/SUB puede perder un mensaje).
         with self._lock_tray:
             q, _ = self._calcular(time.monotonic())
+            self._h_from = self._h_to = self._manos_en(time.monotonic()).copy()
             self._q_from = self._q_to = q.copy()
             self._dur = 1.0
             self._t0 = time.monotonic()
@@ -326,28 +391,36 @@ class ConectorSonic:
             log.warning(f"Seña '{nombre_seña}' sin postura definida — se omite")
             return False
         secuencia = SEÑAS_SONIC.get(nombre_seña)
+        forma = self.formas.get(nombre_seña)
         if secuencia is not None:
-            dur_total = sum(d for _, d in secuencia)
-            log.info(f"→ SONIC: {nombre_seña} ({len(secuencia)} fotogramas, {dur_total:.1f} s)")
-            for objetivos, dur in secuencia:
-                self.ir_a(objetivos, dur)
+            dur_total = sum(f[1] for f in secuencia)
+            log.info(f"→ SONIC: {nombre_seña} ({len(secuencia)} fotogramas, {dur_total:.1f} s"
+                     f"{', con dedos' if forma is not None and self.manos != 'ninguna' else ''})")
+            for i, fotograma in enumerate(secuencia):
+                objetivos, dur = fotograma[0], fotograma[1]
+                manos = fotograma[2] if len(fotograma) > 2 else ({"der": nombre_seña} if i == 0 else None)
+                self.ir_a(objetivos, dur, manos=manos)
         else:
             log.info(f"→ SONIC: {nombre_seña} ({cmd.duracion:.1f} s)")
-            self.ir_a(comando_a_objetivos_mj(cmd), cmd.duracion)
+            self.ir_a(comando_a_objetivos_mj(cmd), cmd.duracion,
+                      manos={"der": nombre_seña} if forma is not None else None)
         time.sleep(pausa)
         return True
 
     def reposo(self, duracion: float = 1.5) -> bool:
         """Brazos y torso a la postura de pie de la política."""
-        self.ir_a(dict(POSTURA_BASE_MJ), duracion)
+        self.ir_a(dict(POSTURA_BASE_MJ), duracion, manos={"der": "REPOSO", "izq": "REPOSO"})
         return True
 
-    def ir_a(self, objetivos_mj: Dict[int, float], duracion: float, esperar: bool = True):
+    def ir_a(self, objetivos_mj: Dict[int, float], duracion: float, esperar: bool = True,
+             manos: Optional[dict] = None):
         """Lleva los joints indicados (índice MuJoCo) a su ángulo con perfil coseno.
 
         Los joints no indicados conservan su consigna. Los índices de piernas
         se ignoran: los controla la política. En modo real se aplican `escala`
         (menos amplitud), `factor_tiempo` (más lento) y `vel_max` (tope rad/s).
+        `manos` = {"der": <seña o 6 valores>, "izq": ...} lleva los dedos a esa forma en el mismo tiempo;
+        lo que no se indique conserva su forma. No tiene efecto con manos="ninguna".
         """
         if self.detenido:
             return
@@ -371,7 +444,21 @@ class ConectorSonic:
                 pico = 0.5 * math.pi * float(np.max(np.abs(q_fin - q_ini))) / dur
                 if pico > self.vel_max:
                     dur *= pico / self.vel_max
+            h_ini = self._manos_en(time.monotonic()).copy()
+            h_fin = h_ini.copy()
+            if manos and self.manos != "ninguna":
+                for lado, desplazamiento in (("der", 0), ("izq", 6)):
+                    forma = manos.get(lado)
+                    if forma is None:
+                        continue
+                    if isinstance(forma, str):
+                        if forma not in self.formas:
+                            log.warning(f"Forma de mano «{forma}» desconocida; se deja la mano como está")
+                            continue
+                        forma = self.formas[forma]
+                    h_fin[desplazamiento:desplazamiento + 6] = np.clip(np.asarray(forma, float), 0.0, 1.0)
             self._q_from, self._q_to = q_ini, q_fin
+            self._h_from, self._h_to = h_ini, h_fin
             self._dur = dur
             self._t0 = time.monotonic()
         if esperar:
@@ -383,7 +470,18 @@ class ConectorSonic:
             q, _ = self._calcular(time.monotonic())
         return {mj: float(q[i]) for i, mj in enumerate(UB17_A_MJ)}
 
+    def forma_manos_actual(self) -> Dict[str, list]:
+        """Forma actual de los dedos: {"der": 6 valores, "izq": 6 valores} (1 = abierto)."""
+        with self._lock_tray:
+            h = self._manos_en(time.monotonic())
+        return {"der": [round(float(x), 3) for x in h[:6]], "izq": [round(float(x), 3) for x in h[6:]]}
+
     # ── Interno ──────────────────────────────────────────────────────
+    def _manos_en(self, t: float) -> np.ndarray:
+        """12 valores de las manos (der 0..5, izq 6..11) en el instante t. Requiere _lock_tray."""
+        s = min(max((t - self._t0) / self._dur, 0.0), 1.0)
+        return self._h_from + 0.5 * (1.0 - math.cos(math.pi * s)) * (self._h_to - self._h_from)
+
     def _calcular(self, t: float):
         """(posición, velocidad) de los 17 GDL en el instante t. Requiere _lock_tray."""
         s = min(max((t - self._t0) / self._dur, 0.0), 1.0)
@@ -407,10 +505,24 @@ class ConectorSonic:
     def _bucle(self):
         dt = 1.0 / self.hz
         siguiente = time.perf_counter()
+        ciclo = 0
+        en_planner = self.manos in ("dex3", "ambas")
         while self._activo.is_set():
             with self._lock_tray:
                 q, dq = self._calcular(time.monotonic())
-            self._enviar(empaquetar_planner(q, dq))
+                h = self._manos_en(time.monotonic()).copy()
+            if en_planner:
+                self._enviar(empaquetar_planner(q, dq, right_hand=a_dex3(h[:6], True),
+                                                left_hand=a_dex3(h[6:], False)))
+            else:
+                self._enviar(empaquetar_planner(q, dq))
+            if self.salida_inspire is not None and ciclo % 2 == 0:      # ~25 Hz a las manos físicas
+                try:
+                    self.salida_inspire.enviar(h[6:], h[:6])
+                except Exception as e:
+                    log.warning(f"Manos Inspire: {e}")
+                    self.salida_inspire = None
+            ciclo += 1
             siguiente += dt
             time.sleep(max(0.0, siguiente - time.perf_counter()))
 
@@ -422,3 +534,7 @@ class ConectorSonic:
             if self._ctx is not None:
                 self._ctx.term()
                 self._ctx = None
+
+# [LSC-inspire] publica las manos Inspire hacia el simulador MuJoCo
+from robot.enlace_inspire_sim import instalar as _instalar_inspire
+_instalar_inspire(ConectorSonic)

@@ -219,3 +219,45 @@ Pulsar el botón de la cámara activa la detiene; pulsar el otro cambia de cáma
 falla (SSH, cámara no encontrada, servidor sin arrancar) aparece el motivo y la cámara queda «inactiva».
 El servidor del robot sigue encendido al detener la cámara (se reactiva al instante). El botón antiguo
 «⚡ Conectar G1» solo aparece si la app se abre sin `--sin-robot`.
+
+## Señas completas con dedos (mano Inspire RH56DFTP-2R)
+
+**Convención del codo.** En `g1_29dof_old_freebase.xml` el codo (índice 25) vale 0 con el antebrazo horizontal hacia
+adelante; **positivo BAJA el antebrazo, negativo lo SUBE** (rango −1.05…2.09). Las señas usaban el signo contrario.
+Las 7 señas (Hola, Gracias, Si, No, Bien, Mal, Silencio) están recalculadas con cinemática inversa sobre el modelo del robot.
+
+**Forma de la mano por seña = datos del repositorio.** `python -m robot.extraer_formas_mano --ver` lee
+`data/sequences/<Seña>/*.npy` (21 puntos MediaPipe por mano), calcula cuánto se flexiona cada dedo y escribe
+`data/formas_mano_lsc.json` con 6 valores por seña (1 = abierto, 0 = cerrado) en el orden de la mano Inspire:
+meñique, anular, medio, índice, pulgar-flexión, pulgar-rotación. Resultado: Hola/Gracias = mano abierta;
+No/Silencio = índice extendido y el resto cerrado; Si = puño; Bien/Mal = puño con el pulgar abierto.
+El movimiento del brazo (altura de la mano, cabeceo, saludo…) no sale de los datos (solo guardan estadísticas
+por seña, no trayectorias): viene de la cinemática inversa.
+
+**Dónde se mueven los dedos (`--manos`).**
+
+| Modo | Qué hace |
+|---|---|
+| `auto` (defecto) | simulación → `dex3`; robot real → `inspire` |
+| `dex3` | manda `left_hand_joints` / `right_hand_joints` (7 articulaciones Dex3) en el mensaje `planner`: se ven en la ventana de MuJoCo (solo pulgar, índice y medio; el simulador de SONIC no tiene manos Inspire ni anular/meñique) |
+| `inspire` | publica `inspire_hand_ctrl` en `rt/inspire_hand/ctrl/{l,r}` (modo ángulo, `angle_set` 0–1000, 1000 = abierto). Requiere `pip install inspire_sdkpy` y el servicio de la mano en el PC2 (DFX_inspire_service / `inspire_g1`) |
+| `ambas` / `ninguna` | las dos salidas / sin mover los dedos |
+
+Con el robot real los dedos no se reducen con `--sonic-escala` (solo los brazos).
+
+**Ver la mano Inspire en 3D** (sin simulador): `git clone --depth 1 https://github.com/unitreerobotics/xr_teleoperate ~/xr_teleoperate`
+y luego `python -m robot.vista_inspire --png manos.png` (imagen) o `--visor` (ventana que recorre las señas).
+
+**Comprobar las señas sin abrir MuJoCo:** `python -m robot.verificar_sena [Seña …] [--png x.png]` — altura de la mano,
+hacia dónde apuntan dedos y pulgar, forma de la mano y límites articulares.
+
+**Cámara → simulador.** Con el simulador iniciado («Init done») y una cámara activa (PC o G1), la seña detectada se
+replica en MuJoCo: si aún no estaba enlazado, la app se enlaza sola con la primera seña. La barra inferior de la
+pestaña Cámara muestra «● MuJoCo G1: replicando» y tiene el interruptor «Replicar la seña detectada». La misma seña
+puede repetirse tras 1.5 s sin detección. Con el robot real nunca se enlaza sola (exige el checklist). Para
+desactivarlo: `--sin-auto-enlace`.
+
+**Límites conocidos.** «Mal» (pulgar abajo) exige abrir el hombro (roll −1.26) y girar la muñeca casi a su tope
+(−1.60) porque el G1 no tiene pronación de antebrazo; con el robot real queda amortiguado por la amplitud 0.6.
+El pulgar de la mano Dex3 en MuJoCo es una aproximación (no hay mallas disponibles para validarlo visualmente);
+la forma de la Inspire sí se ve en `vista_inspire`. Confirmar las formas con un intérprete de LSC.

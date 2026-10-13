@@ -98,6 +98,7 @@ class AppUnificada:
         self.panel_voz.robot = self.panel_camara._robot  # compartir el conector
         # La seña que detecta la cámara también la ejecuta el G1 de SONIC (MuJoCo o real)
         self.panel_camara.ejecutar_seña_sonic = self.panel_voz.ejecutar_desde_camara
+        self.panel_camara.estado_destino = self.panel_voz.estado_replica
 
         # ── Verificación de arranque: deja todo listo y lo muestra en la pestaña «Conexión»
         from gui.panel_conexion import PanelConexion
@@ -164,6 +165,11 @@ def parsear_args():
                    help="Factor de duración de cada tramo; >1 = más lento (default 1.5 en real, 1.0 en sim)")
     p.add_argument("--sonic-vel-max", type=float, default=None, metavar="RAD/S",
                    help="Tope de velocidad articular en rad/s (default 1.2 en real, sin tope en sim)")
+    p.add_argument("--manos", choices=["auto", "dex3", "inspire", "ambas", "ninguna"], default="auto",
+                   help="dedos de la mano Inspire RH56DFTP-2R: auto = simulador -> manos Dex3 de MuJoCo, "
+                        "real -> Inspire por DDS (rt/inspire_hand/ctrl); ninguna = sin mover los dedos")
+    p.add_argument("--sin-auto-enlace", action="store_true",
+                   help="no enlazar solo con el simulador cuando la cámara detecta una seña")
     p.add_argument("--sonic-confianza", type=float, default=0.8, metavar="0-1",
                    help="Confianza mínima de la seña detectada por cámara para que el G1 la ejecute (default 0.8)")
     p.add_argument("--mic", choices=["auto", "pc", "g1"], default="auto",
@@ -227,7 +233,8 @@ def main():
         raise SystemExit("--sonic-tiempo no puede ser < 1 con --sonic-real")
     sonic_opciones = dict(modo_real=args.sonic_real, escala=args.sonic_escala,
                           factor_tiempo=args.sonic_tiempo, vel_max=args.sonic_vel_max,
-                          confianza_min=args.sonic_confianza)
+                          confianza_min=args.sonic_confianza, manos=args.manos,
+                          auto_enlazar_camara=not args.sin_auto_enlace)
     sonic_opciones.update(mic=args.mic, mic_iface_ip=args.mic_g1_ip,
                           gr00t_dir=args.gr00t_dir, interfaz=args.iface,
                           mujoco_pos=_par(args.mujoco_pos, ",", "--mujoco-pos"),

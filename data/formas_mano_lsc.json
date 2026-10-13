@@ -1,0 +1,117 @@
+{
+ "orden": [
+  "menique",
+  "anular",
+  "medio",
+  "indice",
+  "pulgar_flexion",
+  "pulgar_rotacion"
+ ],
+ "escala": "1.0 = abierto, 0.0 = cerrado",
+ "formas": {
+  "Bien": {
+   "menique": 0.2,
+   "anular": 0.21,
+   "medio": 0.27,
+   "indice": 0.17,
+   "pulgar_flexion": 0.86,
+   "pulgar_rotacion": 0.97
+  },
+  "Gracias": {
+   "menique": 1.0,
+   "anular": 1.0,
+   "medio": 1.0,
+   "indice": 1.0,
+   "pulgar_flexion": 0.84,
+   "pulgar_rotacion": 0.39
+  },
+  "Hola": {
+   "menique": 1.0,
+   "anular": 1.0,
+   "medio": 1.0,
+   "indice": 1.0,
+   "pulgar_flexion": 0.91,
+   "pulgar_rotacion": 0.43
+  },
+  "Mal": {
+   "menique": 0.0,
+   "anular": 0.0,
+   "medio": 0.01,
+   "indice": 0.24,
+   "pulgar_flexion": 0.88,
+   "pulgar_rotacion": 0.86
+  },
+  "No": {
+   "menique": 0.33,
+   "anular": 0.32,
+   "medio": 0.43,
+   "indice": 1.0,
+   "pulgar_flexion": 0.24,
+   "pulgar_rotacion": 0.54
+  },
+  "Si": {
+   "menique": 0.0,
+   "anular": 0.0,
+   "medio": 0.0,
+   "indice": 0.16,
+   "pulgar_flexion": 0.14,
+   "pulgar_rotacion": 0.54
+  },
+  "Silencio": {
+   "menique": 0.24,
+   "anular": 0.23,
+   "medio": 0.32,
+   "indice": 1.0,
+   "pulgar_flexion": 0.81,
+   "pulgar_rotacion": 0.41
+  }
+ },
+ "referencia": {
+  "flexion_abierta_rad": 0.21750761481150407,
+  "flexion_cerrada_rad": 5.1219788036164156
+ },
+ "fuente": {
+  "Bien": {
+   "muestras": 60,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.16810598090208323
+  },
+  "Gracias": {
+   "muestras": 60,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.9510441141340695
+  },
+  "Hola": {
+   "muestras": 59,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.24914893243637093
+  },
+  "Mal": {
+   "muestras": 60,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.08598742734834487
+  },
+  "No": {
+   "muestras": 60,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.3842923004927114
+  },
+  "Si": {
+   "muestras": 60,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.5051714719281281
+  },
+  "Silencio": {
+   "muestras": 53,
+   "total": 60,
+   "posicion_vector": 63,
+   "movimiento_punta_indice": 0.06927410456187144
+  }
+ }
+}

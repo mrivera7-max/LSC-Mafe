@@ -32,17 +32,25 @@ class VentanaVozASena:
                  vel_max=None, confianza_min: float = 0.8,
                  mic: str = "pc", mic_iface_ip: str = None,
                  gr00t_dir: str = None, interfaz: str = None,
-                 mujoco_pos=(0, 0), mujoco_tam=None, integrado: bool = True):
+                 mujoco_pos=(0, 0), mujoco_tam=None, integrado: bool = True,
+                 manos: str = "auto", auto_enlazar_camara: bool = True):
         """
         modo_real      True: el deploy SONIC mueve el G1 FÍSICO (no MuJoCo). Exige confirmar
                        el checklist de seguridad y limita amplitud y velocidad de las señas.
         escala, factor_tiempo, vel_max   ver ConectorSonic (None = valores por defecto del modo).
         confianza_min  confianza mínima de una seña detectada por la cámara para ejecutarla.
+        manos          dedos de la mano Inspire RH56DFTP-2R: "auto" (sim -> manos Dex3 de MuJoCo,
+                       real -> Inspire por DDS), "dex3", "inspire", "ambas" o "ninguna" (ver ConectorSonic).
+        auto_enlazar_camara  si el simulador ya está iniciado («Init done») y llega una seña de la
+                       cámara, se enlaza solo y la ejecuta. Nunca con el robot real.
         mic            "pc", "g1" (micrófono del robot, sin respaldo) o "auto" (G1 y, si no
                        llega audio, la PC).
         """
         self.modo_real = modo_real
-        self._opciones_sonic = dict(escala=escala, factor_tiempo=factor_tiempo, vel_max=vel_max)
+        self._opciones_sonic = dict(escala=escala, factor_tiempo=factor_tiempo, vel_max=vel_max, manos=manos,
+                                    interfaz_dds=interfaz or "")
+        self.auto_enlazar_camara = auto_enlazar_camara
+        self._pendiente_camara = None                 # (seña, instante) recibida mientras se enlazaba
         self.confianza_min = confianza_min
         self.mic = mic
         self._mic_iface_ip = mic_iface_ip
@@ -295,8 +303,9 @@ class VentanaVozASena:
         )
 
     def _conectar_sonic(self):
-        sonic = ConectorSonic(real=self.modo_real, **{k: v for k, v in
-                              self._opciones_sonic.items() if v is not None})
+        opciones = {k: v for k, v in self._opciones_sonic.items() if v is not None}
+        opciones["interfaz_dds"] = self.lanzador.interfaz if self.modo_real else ""
+        sonic = ConectorSonic(real=self.modo_real, **opciones)
         if not sonic.conectar():
             self._raiz.after(0, self._sonic_fallo, sonic.error or "error desconocido")
             return
@@ -322,6 +331,19 @@ class VentanaVozASena:
         else:
             self._agregar_log("Publicando hacia el deploy SONIC. Si el G1 sigue colgado, "
                               "pulsa 9 en la ventana de MuJoCo para soltarlo.")
+        s = self.sonic
+        if s is not None:
+            donde = {"dex3": "manos Dex3 de MuJoCo (índice, medio y pulgar; sin anular ni meñique)",
+                     "inspire": "manos Inspire RH56DFTP-2R por DDS (rt/inspire_hand/ctrl)",
+                     "ambas": "manos Dex3 (MuJoCo) e Inspire (DDS)", "ninguna": "sin movimiento de dedos"}.get(
+                         getattr(s, "manos", None))
+            if donde:
+                self._agregar_log(f"Dedos: {donde}.")
+            if getattr(s, "aviso_manos", None):
+                self._agregar_log(f"[AVISO] {s.aviso_manos}")
+        pend, self._pendiente_camara = self._pendiente_camara, None
+        if pend and __import__("time").time() - pend[1] < 8.0:
+            self.ejecutar_desde_camara(pend[0])
 
     def _sonic_fallo(self, mensaje: str):
         self._conectando_sonic = False
@@ -586,9 +608,12 @@ class VentanaVozASena:
         sigue ejecutando una seña anterior: con el G1 real no se acumulan órdenes.
         """
         sonic = self.sonic
-        if sonic is None or not sonic.conectado or sonic.detenido:
-            return False
         if seña.confianza < self.confianza_min:
+            return False
+        if sonic is None or not sonic.conectado:
+            self._auto_enlazar_desde_camara(seña)
+            return False
+        if sonic.detenido:
             return False
         if not self._lock_sonic.acquire(blocking=False):
             return False  # ocupado con otra seña
@@ -608,6 +633,27 @@ class VentanaVozASena:
                              f"({seña.confianza:.0%}) ejecutada")
         threading.Thread(target=_tarea, daemon=True).start()
         return True
+
+    def _auto_enlazar_desde_camara(self, seña):
+        """Simulador ya iniciado (Init done) pero sin enlazar: se enlaza y luego ejecuta la seña.
+        Con el robot real NUNCA se enlaza solo (exige el checklist de seguridad)."""
+        if (not self.auto_enlazar_camara or self.modo_real or self._lanzado[True] or not self._lanzado[False]
+                or self._conectando_sonic or self._esperando or not self.lanzador.deploy_listo(False)):
+            return
+        self._pendiente_camara = (seña, __import__("time").time())
+        self._raiz.after(0, self._agregar_log, f"Cámara: seña «{seña.nombre}» — enlazando con el simulador…")
+        self._raiz.after(0, self._enlazar, False)
+
+    def estado_replica(self):
+        """(texto, color) para la barra de la pestaña Cámara: ¿se replican allí las señas detectadas?"""
+        destino = self._nombre_destino
+        if self._conectado():
+            return f"{destino}: replicando", "#86efac"
+        if self._conectando_sonic or self._esperando:
+            return f"{destino}: enlazando…", "#fde68a"
+        if self._lanzado[False] and not self.modo_real and self.auto_enlazar_camara:
+            return "Simulador iniciado: se enlaza con la primera seña", "#fde68a"
+        return "Simulador: sin enlazar (pestaña Voz → «🖥 Abrir simulación»)", "#f87171"
 
     def _enviar_al_robot(self, señas):
         """Ejecuta la secuencia en el G1, una seña tras otra (hilo aparte)."""

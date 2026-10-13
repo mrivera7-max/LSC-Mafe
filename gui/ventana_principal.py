@@ -42,6 +42,9 @@ class VentanaPrincipal:
         self._hilo_camara: Optional[threading.Thread] = None
         self._total_señas = 0
         self._ultima_seña = None
+        self._t_ultima_seña = 0.0         # última vez que el reconocedor vio una seña (para poder repetirla)
+        self._replicar = True             # replicar en el simulador / robot las señas detectadas
+        self.estado_destino = None        # callable -> (texto, color); lo asigna app_unificada
 
         # Componentes del sistema (inicializados al arrancar)
         self._reconocedor = None
@@ -376,10 +379,33 @@ class VentanaPrincipal:
                                          font=("Segoe UI", 8))
         self._lbl_status_fps.pack(side="left", padx=12)
 
+        tk.Label(self._barra_estado, text="|", bg=c["acento"], fg=c["texto_sec"]).pack(side="left")
+
+        # Réplica de la seña detectada en el simulador (MuJoCo) o el robot real de SONIC
+        self._lbl_status_sim = tk.Label(self._barra_estado, text="● Simulador: sin enlazar",
+                                         bg=c["acento"], fg=c["rojo"], font=("Segoe UI", 8))
+        self._lbl_status_sim.pack(side="left", padx=(12, 4))
+        self._var_replicar = tk.BooleanVar(master=self._barra_estado, value=True)
+        tk.Checkbutton(self._barra_estado, text="Replicar la seña detectada", variable=self._var_replicar,
+                       command=lambda: setattr(self, "_replicar", bool(self._var_replicar.get())),
+                       bg=c["acento"], fg=c["texto_sec"], selectcolor=c["acento"],
+                       activebackground=c["acento"], activeforeground=c["texto"],
+                       font=("Segoe UI", 8), cursor="hand2").pack(side="left")
+        self._refrescar_estado_sim()
+
         # Versión a la derecha
         tk.Label(self._barra_estado, text="LSC Ing. María Fernanda Rivera Sanclemente | Colombia",
                  bg=c["acento"], fg=c["texto_sec"],
                  font=("Segoe UI", 8)).pack(side="right", padx=12)
+
+    def _refrescar_estado_sim(self):
+        """Cada segundo muestra si hay un simulador / robot de SONIC enlazado para replicar las señas."""
+        try:
+            texto, color = self.estado_destino() if self.estado_destino else ("Simulador: sin enlazar", self._colores["rojo"])
+            self._lbl_status_sim.configure(text=f"● {texto}", fg=color)
+            self._raiz.after(1000, self._refrescar_estado_sim)
+        except tk.TclError:
+            pass                                     # la ventana se cerró
 
     def _separador(self, parent):
         tk.Frame(parent, bg=self._colores["acento"], height=1).pack(fill="x", padx=16, pady=4)
@@ -471,13 +497,19 @@ class VentanaPrincipal:
             frame = cv2.flip(frame, 1)  # Espejo
             seña = self._reconocedor.procesar_frame(frame)
 
+            ahora = time.time()
+            if seña:
+                self._t_ultima_seña = ahora
+            elif self._ultima_seña is not None and ahora - self._t_ultima_seña > 1.5:
+                self._ultima_seña = None      # sin seña por 1.5 s: la misma seña puede repetirse
+
             if seña and (self._ultima_seña is None or seña.nombre != self._ultima_seña.nombre):
                 self._ultima_seña = seña
                 self._total_señas += 1
                 self._raiz.after(0, self._actualizar_seña, seña)
                 # Primero el G1 vía SONIC (MuJoCo o real), si la pestaña Voz lo conectó
                 hook = getattr(self, "ejecutar_seña_sonic", None)
-                if hook is not None and hook(seña):
+                if hook is not None and self._replicar and hook(seña):
                     pass
                 elif self._robot and self._robot.conectado:
                     threading.Thread(
