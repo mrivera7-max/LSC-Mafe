@@ -3,7 +3,8 @@ Prepara desde la app el servidor de cámara (teleimager-server) del PC2 del G1.
 
 Hace por SSH lo que antes se hacía a mano en la «Terminal A»:
 
-  1. Busca qué /dev/videoN es la cámara externa (OBSBOT) — el número cambia entre reinicios.
+  1. Busca qué /dev/videoN es la cámara externa (OBSBOT, o una RealSense: usa su nodo de color) — el
+     número cambia entre reinicios.
   2. Escribe cam_config_server.yaml con la RealSense (cabeza) desactivada y la externa activa.
   3. (Re)inicia teleimager-server en segundo plano si hace falta.
   4. Espera a que el puerto ZMQ de la cámara responda.
@@ -31,6 +32,7 @@ PUERTO_EXTERNA = 55556
 NOMBRE_EXTERNA = "OBSBOT"
 LOG_REMOTO = "/tmp/teleimager_lsc.log"
 FORMA = (540, 960)               # alto, ancho de la imagen que publica la cámara externa
+FORMA_REALSENSE = (480, 640)     # la RealSense (color YUYV) trabaja bien a 640x480 @ 30
 
 
 class ErrorCamaraG1(RuntimeError):
@@ -66,6 +68,53 @@ def elegir_video(texto: str, clave: str = NOMBRE_EXTERNA) -> str:
                         "¿Está conectada por USB al PC2?")
 
 
+def es_realsense(nombre: str) -> bool:
+    return bool(re.search(r"realsense", nombre, re.IGNORECASE))
+
+
+def buscar_dispositivo(texto: str, clave: str = NOMBRE_EXTERNA) -> Tuple[str, List[str]]:
+    """(nombre, [/dev/videoN...]) de la cámara externa.
+
+    Orden: 1) el dispositivo cuyo nombre contiene `clave`; 2) el primero que no sea RealSense ni Tegra;
+    3) una RealSense (si hay varias, la última: la recién conectada suele quedar al final)."""
+    bloques = parsear_dispositivos(texto)
+    coinciden = [(n, v) for n, v in bloques if v and clave.lower() in n.lower()]
+    if coinciden:
+        return coinciden[-1] if es_realsense(coinciden[-1][0]) else coinciden[0]
+    for nombre, videos in bloques:
+        if videos and not re.search(r"realsense|tegra", nombre, re.IGNORECASE):
+            return nombre, videos
+    reales = [(n, v) for n, v in bloques if v and es_realsense(n)]
+    if reales:
+        return reales[-1]
+    vistos = "; ".join(f"{n}: {' '.join(v) or '-'}" for n, v in bloques) or "ninguno"
+    raise ErrorCamaraG1(f"No encuentro la cámara externa «{clave}» en el robot. Dispositivos: {vistos}. "
+                        "¿Está conectada por USB al PC2?")
+
+
+_NO_COLOR = ("Z16", "GREY", "Y8I", "Y12I", "Y16")
+_COLOR = ("YUYV", "MJPG", "RGB3", "BGR3", "NV12")
+
+
+def elegir_nodo_color(formatos: str) -> Optional[str]:
+    """Salida de un bucle `@@ /dev/videoN` + `v4l2-ctl --list-formats` -> número del nodo de COLOR.
+
+    Una RealSense crea varios /dev/video (profundidad, infrarrojo, color, metadatos); sirve el que
+    ofrece YUYV/MJPG y no es de profundidad ni infrarrojo."""
+    for trozo in formatos.split("@@")[1:]:
+        lineas = trozo.strip().splitlines()
+        if not lineas:
+            continue
+        m = re.search(r"/dev/video(\d+)", lineas[0])
+        if not m:
+            continue
+        codigos = set(re.findall(r"'([A-Za-z0-9 ]{4})'", "\n".join(lineas[1:])))
+        codigos = {c.strip() for c in codigos}
+        if codigos & set(_COLOR) and not codigos & set(_NO_COLOR):
+            return m.group(1)
+    return None
+
+
 def generar_yaml(video_id: str, puerto: int = PUERTO_EXTERNA, forma: Tuple[int, int] = FORMA) -> str:
     """cam_config_server.yaml con la RealSense apagada y la cámara externa publicando por ZMQ."""
     def apagada(vid: str) -> str:
@@ -91,7 +140,7 @@ class ServidorCamaraG1:
 
     # ── SSH ──────────────────────────────────────────────────────────
     def _argv_ssh(self, remoto: str) -> Tuple[List[str], dict]:
-        base = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new",
+        base = ["ssh", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "ServerAliveInterval=5", f"{self.usuario}@{self.host}", remoto]
         env = dict(os.environ)
         if self.clave and shutil.which("sshpass"):
@@ -107,9 +156,11 @@ class ServidorCamaraG1:
             r = subprocess.run(argv, input=entrada, capture_output=True, text=True,
                                timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
-            raise ErrorCamaraG1(f"El robot ({self.host}) no respondió por SSH a tiempo.")
+            raise ErrorCamaraG1(f"El robot ({self.host}) no respondió por SSH a tiempo ({timeout:.0f} s) en: "
+                                f"{(remoto or entrada or '').strip()[:70]!r}")
         if r.returncode == 255:
-            err = (r.stderr or "").strip()
+            err = "\n".join(l for l in (r.stderr or "").splitlines()
+                            if l.strip() and not l.lstrip().startswith(("**", "Warning:"))).strip()
             if "denied" in err.lower():
                 raise ErrorCamaraG1(
                     f"El robot pide contraseña por SSH. Haz esto una sola vez en una terminal de la PC:\n"
@@ -141,31 +192,53 @@ class ServidorCamaraG1:
                 avisar(msg)
 
         paso("Conectando por SSH con el robot…")
-        listado = self._ssh("v4l2-ctl --list-devices 2>&1")
+        listado = self._ssh("timeout 40 v4l2-ctl --list-devices 2>&1", timeout=50)
         if not listado.strip():
             raise ErrorCamaraG1("El robot no devolvió la lista de cámaras (¿falta v4l2-ctl?).")
-        video = elegir_video(listado, self.nombre_camara)
-        paso(f"Cámara externa en /dev/video{video}.")
+        nombre, videos = buscar_dispositivo(listado, self.nombre_camara)
+        forma = FORMA
+        if es_realsense(nombre):
+            forma = FORMA_REALSENSE
+            salida = self._ssh("for d in " + " ".join(videos) + "; do echo \"@@ $d\"; "
+                               "v4l2-ctl -d $d --list-formats 2>/dev/null; done")
+            video = elegir_nodo_color(salida)
+            if video is None:
+                raise ErrorCamaraG1(f"La {nombre} no ofrece un nodo de color entre {' '.join(videos)}.")
+            paso(f"{nombre}: usando el nodo de color /dev/video{video}.")
+        else:
+            video = videos[0].replace("/dev/video", "")
+            paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
 
-        nuevo = generar_yaml(video, self.puerto)
+        nuevo = generar_yaml(video, self.puerto, forma)
         igual = self._yaml_actual().strip() == nuevo.strip()
         if igual and self.puerto_abierto():
             paso("El servidor de cámara ya estaba listo.")
             return self.puerto
 
         if not igual:
-            paso("Desactivando la RealSense y activando la cámara externa…")
+            paso("Configurando la cámara externa en el servidor del robot…")
             d = self.directorio
             self._ssh(f"cd {d} && {{ [ -f cam_config_server.yaml.lsc_bak ] || "
                       f"cp cam_config_server.yaml cam_config_server.yaml.lsc_bak 2>/dev/null; }}; "
                       f"cat > cam_config_server.yaml", entrada=nuevo)
 
         paso("Iniciando teleimager-server en el robot…")
-        # [t] evita que pkill coincida con este mismo comando
-        self._ssh("pkill -f '[t]eleimager-server'; sleep 1; "
-                  f"cd {self.directorio} && PATH=$HOME/.local/bin:$PATH "
-                  f"setsid nohup teleimager-server > {LOG_REMOTO} 2>&1 < /dev/null & sleep 0.5; echo ok",
-                  timeout=25)
+        # El script va por stdin (`bash -s`): si fuera argumento de ssh, la línea de comandos del shell remoto
+        # contendría «teleimager-server» y `pkill -f` mataría su propio shell (ssh devolvía 255).
+        try:
+            self._ssh("bash -s",
+                      entrada="exec >/dev/null 2>&1 </dev/null\n"
+                              "pkill -f '[t]eleimager-server'; sleep 1\n"
+                              "pkill -9 -f '[t]eleimager-server'; sleep 1\n"
+                              f"cd {self.directorio} && PATH=$HOME/.local/bin:$PATH "
+                              f"setsid nohup teleimager-server > {LOG_REMOTO} 2>&1 < /dev/null &\n"
+                              "sleep 0.5\n",
+                      timeout=12)
+        except ErrorCamaraG1 as e:
+            # si solo fue lentitud de SSH (el servidor ya arrancó), el sondeo del puerto lo confirma
+            if "a tiempo" not in str(e):
+                raise
+            log.warning(f"SSH tardó al lanzar teleimager-server; compruebo el puerto igualmente: {e}")
         fin = time.time() + espera_s
         while time.time() < fin:
             if self.puerto_abierto():
@@ -183,7 +256,7 @@ class ServidorCamaraG1:
     def detener(self):
         """Apaga teleimager-server en el robot (libera la cámara)."""
         try:
-            self._ssh("pkill -f '[t]eleimager-server'; echo ok", timeout=10)
+            self._ssh("pkill -f '[t]eleimager-server'; sleep 1; pkill -9 -f '[t]eleimager-server'; echo ok", timeout=10)
         except ErrorCamaraG1 as e:
             log.warning(f"No se pudo detener teleimager-server: {e}")
 
