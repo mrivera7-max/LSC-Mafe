@@ -115,6 +115,29 @@ def elegir_nodo_color(formatos: str) -> Optional[str]:
     return None
 
 
+SCRIPT_REMOTO = "~/lsc_camara_server.py"
+LOG_LIGERO = "/tmp/lsc_camara.log"
+
+
+def bloques_realsense(texto: str) -> List[Tuple[str, List[str]]]:
+    """Todas las RealSense listadas, la última conectada primero (suele ser la externa)."""
+    return [(n, v) for n, v in reversed(parsear_dispositivos(texto)) if v and es_realsense(n)]
+
+
+def nodos_color_realsense(salida: str) -> List[int]:
+    """Del bucle `@@ /dev/videoN` + `v4l2-ctl --list-formats`: nodos que ofrecen color (YUYV/MJPG...)."""
+    nodos = []
+    for trozo in salida.split("@@")[1:]:
+        lineas = trozo.strip().splitlines()
+        m = re.search(r"/dev/video(\d+)", lineas[0]) if lineas else None
+        if not m:
+            continue
+        codigos = {c.strip() for c in re.findall(r"'([A-Za-z0-9 ]{4})'", "\n".join(lineas[1:]))}
+        if codigos & set(_COLOR) and not codigos & set(_NO_COLOR):
+            nodos.append(int(m.group(1)))
+    return nodos
+
+
 def generar_yaml(video_id: str, puerto: int = PUERTO_EXTERNA, forma: Tuple[int, int] = FORMA) -> str:
     """cam_config_server.yaml con la RealSense apagada y la cámara externa publicando por ZMQ."""
     def apagada(vid: str) -> str:
@@ -184,6 +207,8 @@ class ServidorCamaraG1:
         except ErrorCamaraG1:
             raise
 
+    modo = "ligero"      # "ligero": servidor propio (rápido, solo abre la cámara elegida); "teleimager": el del robot
+
     def preparar(self, avisar: Optional[Callable[[str], None]] = None, espera_s: float = 30.0) -> int:
         """Deja la cámara externa publicando. Devuelve el puerto ZMQ. Lanza ErrorCamaraG1."""
         def paso(msg: str):
@@ -198,16 +223,12 @@ class ServidorCamaraG1:
         nombre, videos = buscar_dispositivo(listado, self.nombre_camara)
         forma = FORMA
         if es_realsense(nombre):
-            forma = FORMA_REALSENSE
-            salida = self._ssh("for d in " + " ".join(videos) + "; do echo \"@@ $d\"; "
-                               "v4l2-ctl -d $d --list-formats 2>/dev/null; done")
-            video = elegir_nodo_color(salida)
-            if video is None:
-                raise ErrorCamaraG1(f"La {nombre} no ofrece un nodo de color entre {' '.join(videos)}.")
-            paso(f"{nombre}: usando el nodo de color /dev/video{video}.")
-        else:
-            video = videos[0].replace("/dev/video", "")
-            paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
+            return self._preparar_realsense(listado, paso, espera_s=min(espera_s, 45.0))
+        video = videos[0].replace("/dev/video", "")
+        paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
+        if self.modo == "ligero":
+            # No se toca la RealSense de la cabeza: teleimager queda apagado y solo se abre la externa.
+            return self._lanzar_ligero([int(video)], forma, paso, espera_s=min(espera_s, 45.0))
 
         nuevo = generar_yaml(video, self.puerto, forma)
         igual = self._yaml_actual().strip() == nuevo.strip()
@@ -227,7 +248,7 @@ class ServidorCamaraG1:
         # contendría «teleimager-server» y `pkill -f` mataría su propio shell (ssh devolvía 255).
         try:
             self._ssh("bash -s",
-                      entrada="exec >/dev/null 2>&1 </dev/null\n"
+                      entrada="exec >/dev/null 2>&1\n"
                               "pkill -f '[t]eleimager-server'; sleep 1\n"
                               "pkill -9 -f '[t]eleimager-server'; sleep 1\n"
                               f"cd {self.directorio} && PATH=$HOME/.local/bin:$PATH "
@@ -253,10 +274,67 @@ class ServidorCamaraG1:
         raise ErrorCamaraG1(f"El servidor de cámara no abrió el puerto {self.puerto} en {espera_s:.0f} s."
                             + (f"\nÚltimas líneas del robot ({LOG_REMOTO}):\n{cola.strip()}" if cola else ""))
 
+    def _preparar_realsense(self, listado: str, paso, espera_s: float) -> int:
+        """RealSense: servidor ligero propio (no teleimager). Prueba los nodos de color de TODAS las
+        RealSense del robot, la última conectada primero, hasta que una entregue imagen."""
+        bloques = bloques_realsense(listado)
+        candidatos: List[int] = []
+        for nombre, videos in bloques:
+            salida = self._ssh("for d in " + " ".join(videos) + "; do echo \"@@ $d\"; "
+                               "v4l2-ctl -d $d --list-formats 2>/dev/null; done", timeout=30)
+            color = nodos_color_realsense(salida)
+            paso(f"{nombre}: nodo(s) de color {color or 'ninguno'}.")
+            candidatos += [n for n in color if n not in candidatos]
+        if not candidatos:
+            raise ErrorCamaraG1("Ninguna RealSense del robot ofrece un nodo de color.")
+
+        return self._lanzar_ligero(candidatos, FORMA_REALSENSE, paso, espera_s)
+
+    def _lanzar_ligero(self, candidatos: List[int], forma: Tuple[int, int], paso, espera_s: float) -> int:
+        """Copia y arranca remoto_camara_lsc.py en el robot probando `candidatos` (nodos /dev/videoN)."""
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "remoto_camara_lsc.py")
+        with open(ruta, encoding="utf-8") as f:
+            codigo = f.read()
+        paso("Copiando el servidor de cámara ligero al robot…")
+        self._ssh(f"cat > {SCRIPT_REMOTO}", entrada=codigo)
+
+        paso("Liberando cámaras y arrancando el servidor ligero…")
+        nodos = ",".join(str(n) for n in candidatos)
+        try:
+            self._ssh("bash -s",
+                      entrada="exec >/dev/null 2>&1\n"
+                              "pkill -9 -f '[t]eleimager-server'; pkill -9 -f '[l]sc_camara_server'; sleep 1\n"
+                              f"setsid nohup python3 {SCRIPT_REMOTO} --port {self.puerto} --nodes {nodos} "
+                              f"--w {forma[1]} --h {forma[0]} > {LOG_LIGERO} 2>&1 < /dev/null &\n"
+                              "sleep 0.5\n",
+                      timeout=12)
+        except ErrorCamaraG1 as e:
+            if "a tiempo" not in str(e):
+                raise
+        fin = time.time() + espera_s
+        while time.time() < fin:
+            if self.puerto_abierto():
+                fuente = ""
+                try:
+                    fuente = next((l for l in self._ssh(f"cat {LOG_LIGERO}").splitlines() if "FUENTE" in l), "")
+                except ErrorCamaraG1:
+                    pass
+                paso(f"Cámara del robot lista. {fuente.strip()}")
+                return self.puerto
+            time.sleep(1.0)
+        cola = ""
+        try:
+            cola = self._ssh(f"tail -n 12 {LOG_LIGERO}")
+        except ErrorCamaraG1:
+            pass
+        raise ErrorCamaraG1(f"La cámara no entregó imagen (nodos probados: {nodos}).\n"
+                            f"Log del robot ({LOG_LIGERO}):\n{cola.strip()}")
+
     def detener(self):
         """Apaga teleimager-server en el robot (libera la cámara)."""
         try:
-            self._ssh("pkill -f '[t]eleimager-server'; sleep 1; pkill -9 -f '[t]eleimager-server'; echo ok", timeout=10)
+            self._ssh("pkill -f '[t]eleimager-server'; pkill -f '[l]sc_camara_server'; sleep 1; "
+                      "pkill -9 -f '[t]eleimager-server'; pkill -9 -f '[l]sc_camara_server'; echo ok", timeout=10)
         except ErrorCamaraG1 as e:
             log.warning(f"No se pudo detener teleimager-server: {e}")
 
