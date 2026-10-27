@@ -52,6 +52,7 @@ class Verificador:
             ("sonic", "Carpeta GR00T / deploy SONIC", self._sonic),
             ("procesos", "Procesos antiguos", self._procesos),
             ("camara_robot", "Cámara del robot (servidor)", self._camara_robot),
+            ("mic_robot", "Micrófono del robot (USB en el PC2)", self._mic_robot),
             ("camara_pc", "Cámara de la PC", self._camara_pc),
             ("internet", "Internet (reconocimiento de voz)", self._internet),
             ("mic_pc", "Micrófono de la PC", self._mic_pc),
@@ -167,6 +168,18 @@ class Verificador:
         except ErrorCamaraG1 as e:
             return Resultado("", "", ERROR, str(e).splitlines()[0], str(e))
         return Resultado("", "", OK, f"RealSense desactivada, cámara externa publicando en :{puerto}")
+
+    def _mic_robot(self) -> Resultado:
+        """Solo detecta; el audio se arranca al pulsar «Conectar robot real» (o con --mic robot)."""
+        if not self._ssh_ok:
+            return Resultado("", "", OMITIDO, "Depende del acceso SSH")
+        from robot.servidor_audio_g1 import ServidorAudioG1
+        try:
+            _, nombre = ServidorAudioG1(self.host, self.usuario, self.clave).detectar()
+        except ErrorCamaraG1 as e:
+            return Resultado("", "", AVISO, str(e).splitlines()[0],
+                             "Conecta el receptor del micrófono (Hollyland) a un USB del PC2, o usa el micrófono de la PC.")
+        return Resultado("", "", OK, f"«{nombre}» conectado al robot; se usará al conectar el robot real")
 
     def _camara_pc(self) -> Resultado:
         idx = getattr(self.config, "camara_idx", 0)

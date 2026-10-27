@@ -40,9 +40,10 @@ class ReconocedorVoz:
 
     def __init__(self, idioma: str = "es-CO", timeout_segundos: float = 5.0,
                  limite_frase_segundos: float = 8.0, fuente: str = "pc",
-                 fallback_pc: bool = False, iface_ip: str = None):
+                 fallback_pc: bool = False, iface_ip: str = None, host_robot: str = None):
         """
-        fuente       "pc" (micrófono de esta PC) o "g1" (micrófono del robot por multicast).
+        fuente       "pc" (micrófono de esta PC), "g1" (micrófono del robot por multicast) o
+                     "robot" (micrófono USB conectado al PC2 del robot, por TCP; ver servidor_audio_g1).
         fallback_pc  con fuente "g1": si el robot no entrega audio, usa el micrófono de la PC.
         """
         self.fuente = fuente
@@ -51,6 +52,9 @@ class ReconocedorVoz:
         if fuente == "g1":
             from voz_a_sena.microfono_g1 import MicrofonoG1
             self._mic_g1 = MicrofonoG1(iface_ip=iface_ip)
+        elif fuente == "robot":
+            from voz_a_sena.microfono_g1 import IP_ROBOT_PC2, MicrofonoG1Remoto
+            self._mic_g1 = MicrofonoG1Remoto(host_robot or IP_ROBOT_PC2)
         self.idioma = idioma
         self.timeout_segundos = timeout_segundos
         self.limite_frase_segundos = limite_frase_segundos
@@ -126,7 +130,7 @@ class ReconocedorVoz:
 
         fuente = self.fuente
         audio = None
-        if fuente == "g1":
+        if fuente in ("g1", "robot"):
             pcm = self._mic_g1.capturar_frase(self.timeout_segundos, self.limite_frase_segundos)
             if pcm is not None:
                 audio = sr.AudioData(pcm, 16000, 2)
@@ -135,7 +139,7 @@ class ReconocedorVoz:
                 log.warning(f"{self._mic_g1.error}. Se usa el micrófono de la PC.")
                 fuente = "pc"
             else:
-                return ResultadoVoz(texto="", exito=False, fuente="g1",
+                return ResultadoVoz(texto="", exito=False, fuente=fuente,
                                     error=self._mic_g1.error or "Sin audio del G1")
         if fuente == "pc":
             try:

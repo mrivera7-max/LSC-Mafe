@@ -36,7 +36,7 @@ BUSCAR_EN = (
     Path.cwd() / "xr_teleoperate",
     Path.cwd().parent / "xr_teleoperate",
 )
-SENAS = ("Hola", "Gracias", "Si", "No", "Bien", "Mal", "Silencio")
+SENAS = ("Hola", "Gracias", "Si", "No", "Bien", "Mal", "Silencio", "BuenosDias", "PorFavor")
 
 
 def buscar_assets(explicito: Optional[str] = None) -> Path:

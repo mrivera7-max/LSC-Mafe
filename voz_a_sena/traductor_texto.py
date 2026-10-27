@@ -31,11 +31,23 @@ SINONIMOS_A_SENA = {
     # Hola
     "hola": "Hola",
     "buenas": "Hola",
-    "buenos dias": "Hola",
     "buenas tardes": "Hola",
     "buenas noches": "Hola",
     "saludos": "Hola",
     "que tal": "Hola",
+
+    # Buenos días (seña propia, dataset de Néstor)
+    "buenos dias": "BuenosDias",
+    "muy buenos dias": "BuenosDias",
+    "buen dia": "BuenosDias",
+    "feliz dia": "BuenosDias",
+
+    # Por favor
+    "por favor": "PorFavor",
+    "porfavor": "PorFavor",
+    "porfa": "PorFavor",
+    "si es tan amable": "PorFavor",
+    "te lo pido": "PorFavor",
 
     # Gracias
     "gracias": "Gracias",
@@ -86,7 +98,7 @@ SINONIMOS_A_SENA = {
     "no hagas ruido": "Silencio",
 }
 
-SEÑAS_VALIDAS = ["Hola", "Gracias", "Si", "No", "Bien", "Mal", "Silencio"]
+SEÑAS_VALIDAS = ["Hola", "Gracias", "Si", "No", "Bien", "Mal", "Silencio", "BuenosDias", "PorFavor"]
 
 
 @dataclass

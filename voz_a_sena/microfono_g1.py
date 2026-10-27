@@ -227,3 +227,58 @@ class MicrofonoG1:
                 if silencio >= silencio_fin:
                     return b"".join(frase)
         return b"".join(frase)
+
+
+
+class _SocketTCP:
+    """Envuelve un socket TCP con la interfaz que usa MicrofonoG1 (recv/settimeout/setblocking/close).
+    Si el robot cierra la conexión, recv simula un tiempo de espera y deja el aviso en `dueño.error`."""
+
+    def __init__(self, sock: socket.socket, dueño):
+        self._s, self._dueño = sock, dueño
+        self.muerto = False
+
+    def recv(self, n):
+        d = self._s.recv(n)
+        if not d:
+            self._dueño.error = "No llegan paquetes: el robot cerró la conexión de audio"
+            self.muerto = True
+            time.sleep(0.2)
+            raise socket.timeout()
+        return d
+
+    def settimeout(self, t):
+        self._s.settimeout(t)
+
+    def setblocking(self, b):
+        self._s.setblocking(b)
+
+    def close(self):
+        self._s.close()
+
+
+class MicrofonoG1Remoto(MicrofonoG1):
+    """Micrófono USB conectado al PC2 del robot (receptor del Hollyland…), recibido por TCP desde
+    `robot/remoto_audio_lsc.py` (la app lo arranca por SSH con `robot.servidor_audio_g1`)."""
+
+    def __init__(self, host: str = IP_ROBOT_PC2, puerto: int = 55557):
+        super().__init__(grupo=None, puerto=puerto)
+        self.host = host
+
+    def abrir(self) -> bool:
+        if self._sock is not None:
+            if not getattr(self._sock, "muerto", False):
+                return True
+            self.cerrar()
+        try:
+            s = socket.create_connection((self.host, self.puerto), timeout=3)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._sock = _SocketTCP(s, self)
+            self.error = None
+            log.info(f"Micrófono del robot: conectado a {self.host}:{self.puerto}")
+            return True
+        except OSError as e:
+            self.error = (f"No llegan paquetes: no se pudo abrir el audio del robot "
+                          f"({self.host}:{self.puerto}): {e}")
+            log.error(self.error)
+            return False

@@ -31,6 +31,7 @@ class VentanaVozASena:
     def __init__(self, modo_real: bool = False, escala=None, factor_tiempo=None,
                  vel_max=None, confianza_min: float = 0.8,
                  mic: str = "pc", mic_iface_ip: str = None,
+                 robot_host: str = "192.168.123.164", robot_usuario: str = "unitree", robot_clave: str = None,
                  gr00t_dir: str = None, interfaz: str = None,
                  mujoco_pos=(0, 0), mujoco_tam=None, integrado: bool = True,
                  manos: str = "auto", auto_enlazar_camara: bool = True):
@@ -54,6 +55,9 @@ class VentanaVozASena:
         self.confianza_min = confianza_min
         self.mic = mic
         self._mic_iface_ip = mic_iface_ip
+        self._robot_ssh = (robot_host, robot_usuario, robot_clave)
+        self._fuente_voz = "pc"                       # "pc" | "g1" | "robot": lo que usa hoy el botón Hablar
+        self._servidor_audio = None
         self.lanzador = LanzadorSonic(gr00t_dir, interfaz, mujoco_pos, mujoco_tam, integrado=integrado)
         self.consola = None
         self._mostrar_pestana_consola = lambda: None
@@ -62,6 +66,8 @@ class VentanaVozASena:
         self.servidor = ServidorVozASena(
             fuente_mic="g1" if mic == "g1" else "pc",
             mic_fallback_pc=False, mic_iface_ip=mic_iface_ip)
+        if mic == "g1":
+            self._fuente_voz = "g1"
         self.robot = None  # ConectorG1 compartido; lo asigna app_unificada.py
         self.sonic = None  # ConectorSonic (MuJoCo, 29 GDL); se crea al enlazar con la simulación o el robot real
         self._raiz = None
@@ -105,14 +111,53 @@ class VentanaVozASena:
                           "«🤖 Conectar robot real» para mover el G1 físico (docs/g1_real.md).")
 
     def _ajustar_mic(self):
-        """Con --mic auto: micrófono del G1 si se trabaja con el robot real, si no el de la PC."""
-        if self.mic != "auto":
+        """Elige el micrófono de voz.
+
+        - mic "pc": el de la PC.  - mic "g1": el del robot por multicast (sin respaldo).
+        - mic "robot": el micrófono USB conectado al PC2 del robot (Hollyland…), con respaldo a la PC.
+        - mic "auto": con el robot real, el micrófono USB del PC2 (si no se detecta, el de la PC);
+          en simulación, el de la PC.
+        """
+        usar_robot = self.mic == "robot" or (self.mic == "auto" and self.modo_real)
+        if not usar_robot:
+            if self.mic == "auto":
+                self._poner_fuente_voz("pc")
             return
-        fuente = "g1" if self.modo_real else "pc"
-        self.servidor.reconocedor_voz = ReconocedorVoz(
-            fuente=fuente, fallback_pc=True, iface_ip=self._mic_iface_ip)
+        self._agregar_log("Buscando el micrófono conectado al robot (SSH)…")
+        threading.Thread(target=self._preparar_mic_robot, daemon=True).start()
+
+    def _poner_fuente_voz(self, fuente: str):
+        self._fuente_voz = fuente
+        if fuente == "robot":
+            host = self._robot_ssh[0]
+            self.servidor.reconocedor_voz = ReconocedorVoz(fuente="robot", fallback_pc=True, host_robot=host)
+        elif fuente == "g1":
+            self.servidor.reconocedor_voz = ReconocedorVoz(
+                fuente="g1", fallback_pc=True, iface_ip=self._mic_iface_ip)
+        else:
+            self.servidor.reconocedor_voz = ReconocedorVoz(fuente="pc")
         self._boton_voz.configure(text=self._texto_boton_voz())
-        self._agregar_log(f"Micrófono de voz: {'del G1' if fuente == 'g1' else 'de la PC'}.")
+
+    def _preparar_mic_robot(self):
+        """Detecta el micrófono del PC2, arranca su servidor de audio y pasa la voz a esa fuente."""
+        from robot.servidor_audio_g1 import ServidorAudioG1
+        host, usuario, clave = self._robot_ssh
+        srv = ServidorAudioG1(host, usuario, clave)
+        self._servidor_audio = srv
+
+        def avisar(msg):
+            self._raiz.after(0, self._agregar_log, f"Micrófono del robot: {msg}")
+
+        try:
+            srv.preparar(avisar)
+        except Exception as e:  # noqa: BLE001
+            self._raiz.after(0, self._agregar_log,
+                             f"[AVISO] Micrófono del robot no disponible ({str(e).splitlines()[0]}). "
+                             "Se usa el micrófono de la PC.")
+            self._raiz.after(0, self._poner_fuente_voz, "pc")
+            return
+        self._raiz.after(0, self._poner_fuente_voz, "robot")
+        self._raiz.after(0, self._agregar_log, "Micrófono de voz: el conectado al robot.")
 
     def cerrar(self):
         """Cierra la conexión con MuJoCo sin destruir la raíz."""
@@ -518,13 +563,12 @@ class VentanaVozASena:
         self._raiz.after(0, self._mostrar_resultado, resultado)
 
     def _nombre_mic(self) -> str:
-        return {"pc": "micrófono de la PC", "g1": "micrófono del G1",
-                "auto": "micrófono del G1, o de la PC si no llega audio"}[self.mic]
+        return {"pc": "micrófono de la PC", "g1": "micrófono del G1 (multicast)",
+                "robot": "micrófono conectado al robot"}[self._fuente_voz]
 
     def _texto_boton_voz(self) -> str:
-        if self.mic == "auto":
-            return "🎤  Hablar (micrófono del G1)" if self.modo_real else "🎤  Hablar (micrófono de la PC)"
-        return "🎤  Hablar (micrófono del G1)" if self.mic == "g1" else "🎤  Hablar (micrófono de la PC)"
+        return {"pc": "🎤  Hablar (micrófono de la PC)", "g1": "🎤  Hablar (micrófono del G1)",
+                "robot": "🎤  Hablar (micrófono del robot)"}[self._fuente_voz]
 
     def _iniciar_escucha(self):
         if self._escuchando:

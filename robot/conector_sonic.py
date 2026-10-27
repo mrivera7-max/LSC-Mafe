@@ -132,9 +132,55 @@ _GRACIAS_1 = {22: -0.24, 23: -0.68, 24: 0.83, 25: -0.78, 26: 0.42, 27: -1.06, 28
 _GRACIAS_2 = {22: -0.28, 23: -0.04, 24: -0.10, 25: -0.72, 26: 0.12, 27: 1.09, 28: -0.08}
 _MANOS_GRACIAS = {"der": "Gracias", "izq": "Gracias"}
 
+# ── Señas del dataset de Néstor (Señas_Nestor.zip: hola, si, no, buenos_dias, por_favor) ─────────
+# Poses de brazo calculadas por cinemática inversa (robot/cinematica_g1.py) a partir de las fotos;
+# forma de los dedos por fotograma sacada de los landmarks del dataset (1 = abierto).
+_ABIERTA = (1.0, 1.0, 1.0, 1.0, 0.9, 0.45)
+_PUNO = (0.0, 0.0, 0.0, 0.0, 0.2, 0.5)
+_PUNO_SUAVE = (0.3, 0.3, 0.35, 0.4, 0.5, 0.5)
+
+# Sí: puño a la altura del hombro, antebrazo vertical, cabeceo de muñeca
+_SI = {22: -0.03, 23: -0.27, 24: -0.17, 25: -0.27, 26: 0.39, 27: -0.92, 28: 0.11}
+
+# Por favor: puño sobre el pecho dibujando un círculo de 4,5 cm de radio (6 puntos, sentido horario)
+_POR_FAVOR = [
+    {22: -0.26, 23: -0.66, 24: 0.25, 25: -0.78, 26: -0.38, 27: -0.32, 28: 0.68},
+    {22: -0.07, 23: -0.80, 24: 0.10, 25: -0.64, 26: -0.33, 27: -0.63, 28: 0.53},
+    {22: 0.02, 23: -0.72, 24: 0.15, 25: -0.49, 26: -0.55, 27: -0.81, 28: 0.38},
+    {22: -0.01, 23: -0.57, 24: 0.34, 25: -0.47, 26: -0.78, 27: -0.72, 28: 0.33},
+    {22: -0.12, 23: -0.43, 24: 0.47, 25: -0.57, 26: -0.81, 27: -0.51, 28: 0.50},
+    {22: -0.26, 23: -0.44, 24: 0.44, 25: -0.72, 26: -0.66, 27: -0.31, 28: 0.69},
+]
+
+# Buenos días: dos manos que suben desde el pecho bajo, pasan por la barbilla y se abren hacia afuera
+_BD_A = {22: -0.02, 23: -0.34, 24: -0.01, 25: 0.06, 26: 1.63, 27: 1.29, 28: 0.29}
+_BD_B = {22: -0.12, 23: 0.0, 24: 0.30, 25: -0.63, 26: -0.37, 27: -0.56, 28: -0.05}
+_BD_C = {22: -0.48, 23: -0.48, 24: -0.46, 25: -0.32, 26: 0.59, 27: -0.51, 28: -0.02}
+
+
+def _dos(der: dict) -> dict:
+    return {**der, **_espejo(der)}
+
+
+def _manos2(f) -> dict:
+    return {"der": f, "izq": f}
+
+
+def _no_cabeceo(n: int = 3, amp: float = 0.28, dur: float = 0.3):
+    """«No»: el G1 no tiene cuello; se imita el movimiento de cabeza con la cintura (yaw) y el dedo."""
+    base = {22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -0.44, 27: -1.13, 28: 0.01}
+    kf = []
+    for _ in range(n):
+        kf.append(({**base, 12: amp, 26: -0.44 + 0.3}, dur))
+        kf.append(({**base, 12: -amp, 26: -0.44 - 0.3}, dur))
+    return base, kf
+
+
+_NO_BASE, _NO_KF = _no_cabeceo()
+
 SEÑAS_SONIC = {
     # mano abierta junto a la cabeza, palma al frente; saluda moviendo la muñeca de lado a lado
-    "Hola": [(_HOLA, 1.1)] + _osc(27, 0.04, 0.55, 3, 0.32) + [({27: 0.04}, 0.3)],
+    "Hola": [(_HOLA, 1.1, {"der": _ABIERTA})] + _osc(27, 0.04, 0.55, 4, 0.30) + [({27: 0.04}, 0.3)],
     # mano plana desde la barbilla hacia adelante
     # ambas manos planas desde la barbilla hacia adelante (en data/sequences las dos manos aparecen abiertas)
     "Gracias": [
@@ -142,11 +188,17 @@ SEÑAS_SONIC = {
         ({**_GRACIAS_2, **_espejo(_GRACIAS_2)}, 1.0, _MANOS_GRACIAS),
     ],
     # puño frente al pecho que asiente (cabeceo de la muñeca)
-    "Si": [({22: -0.08, 23: -0.08, 24: 0.0, 25: -0.58, 26: 0.11, 27: 0.75, 28: -0.08}, 0.9)]
-          + _osc(27, 0.75, 0.4, 2, 0.3) + [({27: 0.75}, 0.3)],
-    # índice arriba que se mueve de lado a lado
-    "No": [({22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -0.44, 27: -1.13, 28: 0.01}, 1.0)]
-          + _osc(26, -0.44, 0.45, 3, 0.28) + [({26: -0.44}, 0.3)],
+    "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(27, -0.92, 0.35, 3, 0.28) + [({27: -0.92}, 0.3)],
+    # «No»: la seña real es un giro de cabeza; el G1 no tiene cuello → giro de cintura + índice que se mueve
+    "No": [(_NO_BASE, 1.0, {"der": (0.3, 0.3, 0.4, 1.0, 0.25, 0.55)})] + _NO_KF + [({**_NO_BASE, 12: 0.0}, 0.4)],
+    "BuenosDias": [
+        (_dos(_BD_A), 1.0, _manos2(_ABIERTA)),
+        (_dos(_BD_B), 0.9, _manos2(_PUNO_SUAVE)),
+        (_dos(_BD_C), 1.0, _manos2(_ABIERTA)),
+        (_dos(_BD_C), 0.4),
+    ],
+    "PorFavor": [(_POR_FAVOR[0], 1.0, {"der": _PUNO})]
+        + [(q, 0.45) for q in _POR_FAVOR[1:] + _POR_FAVOR + [_POR_FAVOR[0]]],
     # puño con el pulgar arriba: del pecho hacia adelante
     "Bien": [
         ({22: 0.37, 23: -0.08, 24: 0.41, 25: -0.57, 26: -0.14, 27: -0.10, 28: -0.29}, 0.9),

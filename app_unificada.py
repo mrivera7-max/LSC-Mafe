@@ -173,9 +173,10 @@ def parsear_args():
                    help="no enlazar solo con el simulador cuando la cámara detecta una seña")
     p.add_argument("--sonic-confianza", type=float, default=0.8, metavar="0-1",
                    help="Confianza mínima de la seña detectada por cámara para que el G1 la ejecute (default 0.8)")
-    p.add_argument("--mic", choices=["auto", "pc", "g1"], default="auto",
-                   help="Micrófono de voz: g1 = robot (multicast), pc = esta PC, "
-                        "auto = G1 al usar el robot real (con respaldo a la PC), PC en simulación")
+    p.add_argument("--mic", choices=["auto", "pc", "g1", "robot"], default="auto",
+                   help="Micrófono de voz: robot = el micrófono USB conectado al PC2 del robot (se detecta y arranca "
+                        "por SSH), g1 = multicast del G1, pc = esta PC, "
+                        "auto = el del robot al usar el robot real (con respaldo a la PC), PC en simulación")
     p.add_argument("--mic-indice", type=int, default=None, metavar="N",
                    help="índice del micrófono de la PC (ver: python -m voz_a_sena.probar_microfono niveles)")
     p.add_argument("--mic-g1-ip", default=None, metavar="IP",
@@ -239,6 +240,9 @@ def main():
                           confianza_min=args.sonic_confianza, manos=args.manos,
                           auto_enlazar_camara=not args.sin_auto_enlace)
     sonic_opciones.update(mic=args.mic, mic_iface_ip=args.mic_g1_ip,
+                          robot_host=getattr(config, "camara_g1_host", None) or "192.168.123.164",
+                          robot_usuario=getattr(config, "camara_g1_usuario", None) or "unitree",
+                          robot_clave=getattr(config, "camara_g1_clave", None),
                           gr00t_dir=args.gr00t_dir, interfaz=args.iface,
                           mujoco_pos=_par(args.mujoco_pos, ",", "--mujoco-pos"),
                           mujoco_tam=_par(args.mujoco_tam, "x", "--mujoco-tam"),
