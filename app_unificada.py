@@ -23,6 +23,7 @@ Uso:
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -175,6 +176,8 @@ def parsear_args():
     p.add_argument("--mic", choices=["auto", "pc", "g1"], default="auto",
                    help="Micrófono de voz: g1 = robot (multicast), pc = esta PC, "
                         "auto = G1 al usar el robot real (con respaldo a la PC), PC en simulación")
+    p.add_argument("--mic-indice", type=int, default=None, metavar="N",
+                   help="índice del micrófono de la PC (ver: python -m voz_a_sena.probar_microfono niveles)")
     p.add_argument("--mic-g1-ip", default=None, metavar="IP",
                    help="IP de esta PC en la red del robot (192.168.123.x) para recibir el audio")
     p.add_argument("--gr00t-dir", default=None, metavar="RUTA",
@@ -240,6 +243,8 @@ def main():
                           mujoco_pos=_par(args.mujoco_pos, ",", "--mujoco-pos"),
                           mujoco_tam=_par(args.mujoco_tam, "x", "--mujoco-tam"),
                           integrado=not args.terminales)
+    if args.mic_indice is not None:
+        os.environ["LSC_MIC_IDX"] = str(args.mic_indice)
     log.info(f"Micrófono de voz: {args.mic} (auto = G1 con robot real, PC con simulación)")
     app = AppUnificada(config, sonic_opciones, verificar_al_inicio=not args.sin_verificar)
     app.ejecutar()

@@ -162,8 +162,8 @@ class MicrofonoG1:
 
     # ── Captura de una frase ─────────────────────────────────────────
     def capturar_frase(self, timeout_espera: float = 5.0, limite_frase: float = 8.0,
-                       silencio_fin: float = 0.8, umbral_rms: Optional[float] = None,
-                       preroll: float = 0.3) -> Optional[bytes]:
+                       silencio_fin: float = 1.2, umbral_rms: Optional[float] = None,
+                       preroll: float = 0.5) -> Optional[bytes]:
         """Espera a que alguien hable y devuelve el PCM (int16 LE, 16 kHz, mono) de la frase.
 
         Devuelve None si no llega audio o nadie habla en `timeout_espera` s; self.error
@@ -179,6 +179,7 @@ class MicrofonoG1:
         previas, frase = [], []
         ruido = []
         umbral = umbral_rms
+        umbral_fin = umbral_rms * 0.5 if umbral_rms else None   # histéresis: terminar con un umbral más bajo
         hablando = False
         silencio = 0.0
         t_ini = time.monotonic()
@@ -209,8 +210,10 @@ class MicrofonoG1:
                 if umbral is None:
                     ruido.append(rms)
                     if len(ruido) * TRAMA_MS >= 500:
-                        umbral = max(250.0, 3.0 * float(np.median(ruido)))
-                        log.info(f"Micrófono G1: ruido {np.median(ruido):.0f} -> umbral {umbral:.0f}")
+                        mediana = float(np.median(ruido))
+                        umbral = max(250.0, 2.5 * mediana)
+                        umbral_fin = max(150.0, 1.4 * mediana)
+                        log.info(f"Micrófono G1: ruido {mediana:.0f} -> inicio {umbral:.0f}, fin {umbral_fin:.0f}")
                     previas = (previas + [f])[-pre_max:]
                     continue
                 if not hablando:
@@ -220,7 +223,7 @@ class MicrofonoG1:
                         frase = list(previas)
                     continue
                 frase.append(f)
-                silencio = 0.0 if rms > umbral else silencio + TRAMA_MS / 1000
+                silencio = 0.0 if rms > umbral_fin else silencio + TRAMA_MS / 1000
                 if silencio >= silencio_fin:
                     return b"".join(frase)
         return b"".join(frase)

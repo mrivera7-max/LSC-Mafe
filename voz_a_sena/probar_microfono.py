@@ -32,6 +32,9 @@ def probar_g1(ip, reconocer):
         print("Di una frase...")
         res = ReconocedorVoz(fuente="g1", iface_ip=ip).escuchar()
         print(res)
+        import os
+        if os.path.exists("/tmp/lsc_ultima_frase_g1.wav"):
+            print("Frase guardada: aplay /tmp/lsc_ultima_frase_g1.wav")
     mic.cerrar()
     return 0
 
@@ -65,6 +68,43 @@ def escanear(segundos=6.0):
     return 0 if vistos_ips else 2
 
 
+def niveles(segundos=1.5):
+    """Mide el nivel de CADA entrada de audio: el que sube al hablar es el micrófono real."""
+    try:
+        import audioop
+        import pyaudio
+    except ImportError as e:
+        print(f"[ERROR] Falta {e.name}: pip install pyaudio (y sudo apt install portaudio19-dev)")
+        return 1
+    pa = pyaudio.PyAudio()
+    print(f"HABLA FUERTE durante toda la prueba ({segundos:.1f} s por dispositivo)...\n")
+    mejor = None
+    for i in range(pa.get_device_count()):
+        info = pa.get_device_info_by_index(i)
+        if info.get("maxInputChannels", 0) < 1:
+            continue
+        rate = int(info.get("defaultSampleRate", 16000))
+        try:
+            fl = pa.open(format=pyaudio.paInt16, channels=1, rate=rate, input=True,
+                         input_device_index=i, frames_per_buffer=1024)
+            pico = 0
+            for _ in range(int(rate / 1024 * segundos)):
+                pico = max(pico, audioop.rms(fl.read(1024, exception_on_overflow=False), 2))
+            fl.close()
+            print(f"  [{i:2d}] nivel {pico:6d}  {info['name']}")
+            if mejor is None or pico > mejor[1]:
+                mejor = (i, pico, info["name"])
+        except Exception as e:  # noqa: BLE001
+            print(f"  [{i:2d}] no abre ({str(e)[:40]})  {info['name']}")
+    pa.terminate()
+    if mejor and mejor[1] > 300:
+        print(f"\n→ Usa el índice {mejor[0]}:  python app_unificada.py ... --mic-indice {mejor[0]}   ({mejor[2]})")
+        return 0
+    print("\n[FALLO] Ningún dispositivo captó voz (nivel > 300). Revisa el cable, que no esté silenciado "
+          "(pavucontrol → Entrada) y el volumen de entrada.")
+    return 2
+
+
 def probar_pc(reconocer):
     try:
         import speech_recognition as sr
@@ -91,13 +131,17 @@ def probar_pc(reconocer):
 
 
 def main():
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser()
-    ap.add_argument("fuente", choices=["g1", "pc", "escanear"])
+    ap.add_argument("fuente", choices=["g1", "pc", "escanear", "niveles"])
     ap.add_argument("--ip", default=None, help="IP local en la red del robot")
     ap.add_argument("--reconocer", action="store_true")
     a = ap.parse_args()
     if a.fuente == "escanear":
         sys.exit(escanear())
+    if a.fuente == "niveles":
+        sys.exit(niveles())
     sys.exit(probar_g1(a.ip, a.reconocer) if a.fuente == "g1" else probar_pc(a.reconocer))
 
 

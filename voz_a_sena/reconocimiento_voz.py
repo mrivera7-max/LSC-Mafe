@@ -6,6 +6,7 @@ internet) para convertir audio del microfono a texto en espanol.
 """
 
 import logging
+import os
 from dataclasses import dataclass
 
 log = logging.getLogger("voz_a_sena.reconocimiento_voz")
@@ -55,11 +56,31 @@ class ReconocedorVoz:
         self.limite_frase_segundos = limite_frase_segundos
         self._recognizer = None
         self._microfono = None
+        try:      # micrófono fijo de la PC (app: --mic-indice N); None = el predeterminado del sistema
+            self.indice = int(os.environ["LSC_MIC_IDX"]) if os.environ.get("LSC_MIC_IDX", "").strip() else None
+        except ValueError:
+            self.indice = None
 
         if SR_OK:
             self._recognizer = sr.Recognizer()
             self._recognizer.energy_threshold = 300
             self._recognizer.dynamic_energy_threshold = True
+
+    @staticmethod
+    def _guardar_depuracion(pcm: bytes, ruta: str = "/tmp/lsc_ultima_frase_g1.wav"):
+        """Guarda la última frase capturada del G1 para poder oírla (aplay) y registra su duración y nivel."""
+        try:
+            import wave
+            import numpy as _np
+            x = _np.frombuffer(pcm, dtype="<i2").astype(_np.float64)
+            log.info(f"Frase del G1: {len(x) / 16000:.2f} s, RMS {float(_np.sqrt(_np.mean(x * x))):.0f} -> {ruta}")
+            with wave.open(ruta, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(16000)
+                w.writeframes(pcm)
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"No se pudo guardar la frase de depuración: {e}")
 
     def disponible(self) -> bool:
         return SR_OK
@@ -79,7 +100,7 @@ class ReconocedorVoz:
         if not SR_OK:
             return
         try:
-            with sr.Microphone(device_index=microfono_idx) as fuente:
+            with sr.Microphone(device_index=microfono_idx if microfono_idx is not None else self.indice) as fuente:
                 log.info("Calibrando ruido ambiente...")
                 self._recognizer.adjust_for_ambient_noise(fuente, duration=duracion)
                 log.info(f"Calibracion completa. Umbral: {self._recognizer.energy_threshold:.0f}")
@@ -109,6 +130,7 @@ class ReconocedorVoz:
             pcm = self._mic_g1.capturar_frase(self.timeout_segundos, self.limite_frase_segundos)
             if pcm is not None:
                 audio = sr.AudioData(pcm, 16000, 2)
+                self._guardar_depuracion(pcm)
             elif self.fallback_pc and "No llegan paquetes" in (self._mic_g1.error or ""):
                 log.warning(f"{self._mic_g1.error}. Se usa el micrófono de la PC.")
                 fuente = "pc"
@@ -117,7 +139,7 @@ class ReconocedorVoz:
                                     error=self._mic_g1.error or "Sin audio del G1")
         if fuente == "pc":
             try:
-                with sr.Microphone(device_index=microfono_idx) as fuente_audio:
+                with sr.Microphone(device_index=microfono_idx if microfono_idx is not None else self.indice) as fuente_audio:
                     log.info("Escuchando... (habla ahora)")
                     audio = self._recognizer.listen(
                         fuente_audio,
