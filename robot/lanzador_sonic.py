@@ -153,7 +153,17 @@ class LanzadorSonic:
             raise RuntimeError(f"No hay entorno .venv* en {self.directorio} (el de gear_sonic_teleop).")
         return (f"cd {shlex.quote(str(self.directorio))} && "
                 f"source {shlex.quote(str(venv / 'bin' / 'activate'))} && "
-                "python gear_sonic/scripts/run_sim_loop.py")
+                f"{self._forzar_x11()}python gear_sonic/scripts/run_sim_loop.py")
+
+    @staticmethod
+    def _forzar_x11() -> str:
+        """Con Wayland nativo la ventana de MuJoCo (GLFW) sale sin barra de título, centrada y sin poder
+        moverla ni colocarla con xdotool. Quitando WAYLAND_DISPLAY abre por XWayland (con bordes).
+        Desactivar con LSC_MUJOCO_WAYLAND=1."""
+        if os.environ.get("LSC_MUJOCO_WAYLAND") == "1":
+            return ""
+        return '[ -n "$DISPLAY" ] && unset WAYLAND_DISPLAY && export XDG_SESSION_TYPE=x11 GDK_BACKEND=x11; '
+
 
     def comando_deploy(self, real: bool) -> str:
         destino = self.interfaz if real else "sim"
