@@ -92,6 +92,22 @@ def buscar_dispositivo(texto: str, clave: str = NOMBRE_EXTERNA) -> Tuple[str, Li
                         "¿Está conectada por USB al PC2?")
 
 
+_INTERNAS = re.compile(r"tegra|platform:|vi-output|nvhost", re.IGNORECASE)
+
+
+def ordenar_grupos(texto: str, clave: str = NOMBRE_EXTERNA) -> List[Tuple[str, List[str]]]:
+    """Todas las cámaras USB del robot en el orden en que conviene probarlas (sin las internas de Tegra):
+    primero la que coincide con `clave`, luego cualquier otra que no sea RealSense, al final las RealSense."""
+    grupos = [(n, v) for n, v in parsear_dispositivos(texto) if v and not _INTERNAS.search(n)]
+
+    def rango(g):
+        n = g[0]
+        if clave and clave.lower() in n.lower():
+            return 0
+        return 2 if es_realsense(n) else 1
+    return sorted(grupos, key=rango)
+
+
 _NO_COLOR = ("Z16", "GREY", "Y8I", "Y12I", "Y16")
 _COLOR = ("YUYV", "MJPG", "RGB3", "BGR3", "NV12")
 
@@ -220,15 +236,35 @@ class ServidorCamaraG1:
         listado = self._ssh("timeout 40 v4l2-ctl --list-devices 2>&1", timeout=50)
         if not listado.strip():
             raise ErrorCamaraG1("El robot no devolvió la lista de cámaras (¿falta v4l2-ctl?).")
-        nombre, videos = buscar_dispositivo(listado, self.nombre_camara)
-        forma = FORMA
-        if es_realsense(nombre):
-            return self._preparar_realsense(listado, paso, espera_s=min(espera_s, 45.0))
-        video = videos[0].replace("/dev/video", "")
-        paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
-        if self.modo == "ligero":
-            # No se toca la RealSense de la cabeza: teleimager queda apagado y solo se abre la externa.
-            return self._lanzar_ligero([int(video)], forma, paso, espera_s=min(espera_s, 45.0))
+        if self.modo != "ligero":
+            nombre, videos = buscar_dispositivo(listado, self.nombre_camara)
+            video = videos[0].replace("/dev/video", "")
+            forma = FORMA
+            paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
+        else:
+            # Detecta TODAS las cámaras conectadas por USB (no solo la que se llame como `nombre_camara`) y
+            # prueba cada una hasta que alguna entregue imagen: la preferida por nombre, luego cualquier otra.
+            grupos = ordenar_grupos(listado, self.nombre_camara)
+            if not grupos:
+                raise ErrorCamaraG1("El robot no tiene cámaras USB conectadas (solo las internas de Tegra). "
+                                    "¿Está enchufada la cámara externa al PC2?")
+            paso("Cámaras USB del robot: " + "; ".join(f"{n} ({' '.join(v)})" for n, v in grupos))
+            fallos, realsense_probada = [], False
+            for nombre, videos in grupos:
+                try:
+                    if es_realsense(nombre):
+                        if realsense_probada:
+                            continue
+                        realsense_probada = True
+                        paso(f"Probando la RealSense «{nombre}»…")
+                        return self._preparar_realsense(listado, paso, espera_s=min(espera_s, 45.0))
+                    nodos = [int(v.replace("/dev/video", "")) for v in videos]
+                    paso(f"Probando «{nombre}» (nodos {nodos})…")
+                    return self._lanzar_ligero(nodos, FORMA, paso, espera_s=min(espera_s, 45.0))
+                except ErrorCamaraG1 as e:
+                    fallos.append(f"{nombre}: {str(e).splitlines()[0]}")
+                    paso(f"«{nombre}» no entrega imagen; pruebo la siguiente.")
+            raise ErrorCamaraG1("Ninguna cámara del robot entregó imagen. " + " | ".join(fallos))
 
         nuevo = generar_yaml(video, self.puerto, forma)
         igual = self._yaml_actual().strip() == nuevo.strip()

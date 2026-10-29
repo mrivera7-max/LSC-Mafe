@@ -446,11 +446,23 @@ class VentanaPrincipal:
                 return False
             nombre_cam = f"del G1 ({self.config.camara_g1_host})"
         else:
-            self._cap = cv2.VideoCapture(self.config.camara_idx)
-            if not self._cap.isOpened():
+            # No se fía del índice: si no entrega imagen, busca la cámara conectada que sí la entregue
+            from utils.detectar_camaras import elegir_camara
+            idx, detalle = elegir_camara(self.config.camara_idx)
+            if idx is None:
                 messagebox.showerror("Error de cámara",
-                                     f"No se pudo abrir la cámara {self.config.camara_idx}.\n"
-                                     "Verifica que esté conectada.")
+                                     f"No se pudo abrir una cámara de la PC: {detalle}.\n"
+                                     "Verifica que esté conectada (y que no la use otro programa).")
+                self._cap = None
+                return False
+            if idx != self.config.camara_idx:
+                log.warning(f"Cámara de la PC: {detalle}")
+                self.config.camara_idx = idx
+            else:
+                log.info(f"Cámara de la PC: {detalle}")
+            self._cap = cv2.VideoCapture(idx)
+            if not self._cap.isOpened():
+                messagebox.showerror("Error de cámara", f"No se pudo abrir la cámara {idx}.")
                 self._cap.release()
                 self._cap = None
                 return False

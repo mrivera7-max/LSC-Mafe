@@ -15,7 +15,9 @@ ICONOS = {V.OK: ("✔", "#22c55e"), V.AVISO: ("⚠", "#f59e0b"), V.ERROR: ("✖"
           V.EN_CURSO: ("⟳", "#60a5fa"), V.PENDIENTE: ("•", "#64748b"), V.OMITIDO: ("–", "#64748b")}
 BANNER = {V.OK: ("✔  Todo listo para arrancar", "#166534"),
           V.AVISO: ("⚠  Listo, con avisos (revisa lo marcado)", "#92400e"),
-          V.ERROR: ("✖  Hay problemas que impiden trabajar con el robot", "#991b1b")}
+          V.ERROR: ("✖  Hay problemas que impiden arrancar (revisa lo marcado)", "#991b1b")}
+BANNER_SIM = ("✔  Simulación lista   ·   ⚠  Robot real no disponible (revisa lo marcado en rojo para usarlo)", "#0f766e")
+BANNER_SIM_ERROR = ("✖  No se puede abrir la simulación (revisa lo marcado)", "#991b1b")
 
 
 class PanelConexion(tk.Frame):
@@ -101,8 +103,14 @@ class PanelConexion(tk.Frame):
         self._resultados = resultados
         self._btn_repetir.configure(state="normal")
         self._lbl_aviso.configure(text="")
+        estado_sim, estado_robot = self.verificador.resumen_doble(resultados)
         estado = self.verificador.resumen(resultados)
-        texto, color = BANNER[estado]
+        if estado_sim == V.ERROR:
+            texto, color = BANNER_SIM_ERROR
+        elif estado_robot in (V.ERROR, V.AVISO) and estado_sim in (V.OK, V.AVISO) and estado == V.ERROR:
+            texto, color = BANNER_SIM       # solo falla el robot: la simulación y la cámara de la PC siguen disponibles
+        else:
+            texto, color = BANNER[estado]
         self._banner.configure(text=texto, bg=color)
         acciones = {r.accion for r in resultados if r.accion}
         if "ssh" in acciones:

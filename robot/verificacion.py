@@ -22,6 +22,8 @@ log = logging.getLogger("robot.verificacion")
 
 OK, AVISO, ERROR, EN_CURSO, PENDIENTE, OMITIDO = "ok", "aviso", "error", "en_curso", "pendiente", "omitido"
 PATRONES_PROCESOS = ("run_sim_loop.py", "g1_deploy_onnx_ref")
+# Comprobaciones que solo afectan al robot real; el resto es lo que necesita la simulación en la PC.
+CLAVES_ROBOT = ("red", "ssh", "interfaz", "camara_robot", "mic_robot")
 
 
 @dataclass
@@ -90,6 +92,19 @@ class Verificador:
         if any(r.estado == AVISO for r in resultados):
             return AVISO
         return OK
+
+    @staticmethod
+    def resumen_doble(resultados: List[Resultado]) -> tuple:
+        """(estado de la simulación, estado del robot real). La simulación solo depende de las
+        comprobaciones que no están en CLAVES_ROBOT; un robot apagado no la impide."""
+        def peor(rs):
+            if any(r.estado == ERROR for r in rs):
+                return ERROR
+            if any(r.estado == AVISO for r in rs):
+                return AVISO
+            return OK
+        return (peor([r for r in resultados if r.clave not in CLAVES_ROBOT]),
+                peor([r for r in resultados if r.clave in CLAVES_ROBOT]))
 
     # ── Comprobaciones ───────────────────────────────────────────────
     def _srv(self) -> ServidorCamaraG1:
@@ -182,12 +197,22 @@ class Verificador:
         return Resultado("", "", OK, f"«{nombre}» conectado al robot; se usará al conectar el robot real")
 
     def _camara_pc(self) -> Resultado:
+        """Detecta las cámaras conectadas probando que entreguen imagen (no solo por número o nombre)."""
+        from utils.detectar_camaras import detectar, listar_nodos
         idx = getattr(self.config, "camara_idx", 0)
-        if os.path.exists(f"/dev/video{idx}"):
-            return Resultado("", "", OK, f"/dev/video{idx}")
-        hay = sorted(glob.glob("/dev/video*"))
-        return Resultado("", "", AVISO, f"No existe /dev/video{idx}" + (f" (hay: {' '.join(hay[:4])})" if hay else ""),
-                         "Conecta la webcam o elige otra con --camara N.")
+        cams = detectar(idx)
+        buenas = [c for c in cams if c.funciona]
+        if buenas:
+            c = buenas[0]
+            extra = "" if c.indice == idx else f" (el índice {idx} no entrega imagen; se usará esta)"
+            return Resultado("", "", OK, f"«{c.nombre}» en {c.ruta} entrega imagen{extra}")
+        nodos = listar_nodos()
+        if nodos:
+            return Resultado("", "", AVISO, "Hay cámaras pero ninguna entrega imagen: " +
+                             ", ".join(f"{n.ruta}" for n in nodos[:4]),
+                             "Cierra otros programas que usen la cámara o reconéctala en un USB 3.")
+        return Resultado("", "", AVISO, "No hay cámaras de color conectadas en la PC",
+                         "Conecta la webcam o la RealSense y pulsa «Verificar de nuevo».")
 
     def _internet(self) -> Resultado:
         try:
