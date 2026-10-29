@@ -48,6 +48,17 @@ class Configuracion:
         self.robot_modo = "espejo"
         self.robot_timeout = 5.0
         self.robot_velocidad_max = 0.5
+        # Robot con SONIC (simulación o real): lo que muestra la pestaña «Robot G1». Las opciones dadas al lanzar
+        # la app (--sonic-escala, --sonic-tiempo, --sonic-vel-max, --sonic-confianza, --manos, --mic, --iface,
+        # --mic-indice) tienen prioridad. Amplitud, tiempo y velocidad solo rigen con el robot real.
+        self.sonic_escala = 0.6          # fracción de la amplitud de cada seña (0-1)
+        self.sonic_tiempo = 1.1          # factor de duración de cada tramo (>= 1; mayor = más lento)
+        self.sonic_vel_max = 2.1         # tope de velocidad articular (rad/s)
+        self.sonic_confianza = 0.8       # confianza mínima de la seña detectada por cámara para que el G1 la ejecute
+        self.sonic_manos = "auto"        # auto | dex3 | inspire | ambas | ninguna
+        self.sonic_iface = ""            # interfaz de red del cable al robot para el deploy ("" = enp131s0)
+        self.mic_fuente = "auto"         # auto | pc | robot | g1
+        self.mic_indice = -1             # micrófono de la PC (-1 = el predeterminado)
         self.joints_brazo_izq = [
             "left_shoulder_pitch", "left_shoulder_roll",
             "left_elbow", "left_wrist_pitch", "left_wrist_yaw",
@@ -90,7 +101,7 @@ class Configuracion:
     def guardar(self):
         datos = {
             k: v for k, v in self.__dict__.items()
-            if not k.startswith("_")
+            if not k.startswith("_") and k != "camara_g1_clave"      # la clave SSH nunca se guarda en disco
         }
         with open(self._ruta_archivo, "w", encoding="utf-8") as f:
             json.dump(datos, f, indent=2, ensure_ascii=False)

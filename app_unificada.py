@@ -150,10 +150,10 @@ def parsear_args():
                    help="abrir MuJoCo y el deploy en terminales externas (por defecto corren dentro de la app)")
     p.add_argument("--sin-auto-g1", action="store_true",
                    help="«Cámara G1» NO prepara el robot por SSH (teleimager-server ya corre a mano)")
-    p.add_argument("--g1-usuario", default="unitree", metavar="USR", help="usuario SSH del PC2 del G1")
+    p.add_argument("--g1-usuario", default=None, metavar="USR", help="usuario SSH del PC2 del G1 (defecto: el de Ajustes, unitree)")
     p.add_argument("--g1-clave", default=None, metavar="CLAVE",
                    help="clave SSH del PC2 (necesita sshpass; mejor usar ssh-copy-id una vez)")
-    p.add_argument("--g1-camara-nombre", default="OBSBOT", metavar="TXT",
+    p.add_argument("--g1-camara-nombre", default=None, metavar="TXT",
                    help="texto que identifica la cámara externa en v4l2-ctl (defecto OBSBOT)")
     p.add_argument("--camara-g1-mono", action="store_true",
                    help="Forzar imagen de un solo lente (no recortar). Por defecto se detecta solo")
@@ -166,14 +166,14 @@ def parsear_args():
                    help="Factor de duración de cada tramo; >1 = más lento (default 1.5 en real, 1.0 en sim)")
     p.add_argument("--sonic-vel-max", type=float, default=None, metavar="RAD/S",
                    help="Tope de velocidad articular en rad/s (default 1.2 en real, sin tope en sim)")
-    p.add_argument("--manos", choices=["auto", "dex3", "inspire", "ambas", "ninguna"], default="auto",
+    p.add_argument("--manos", choices=["auto", "dex3", "inspire", "ambas", "ninguna"], default=None,
                    help="dedos de la mano Inspire RH56DFTP-2R: auto = simulador -> manos Dex3 de MuJoCo, "
                         "real -> Inspire por DDS (rt/inspire_hand/ctrl); ninguna = sin mover los dedos")
     p.add_argument("--sin-auto-enlace", action="store_true",
                    help="no enlazar solo con el simulador cuando la cámara detecta una seña")
-    p.add_argument("--sonic-confianza", type=float, default=0.8, metavar="0-1",
+    p.add_argument("--sonic-confianza", type=float, default=None, metavar="0-1",
                    help="Confianza mínima de la seña detectada por cámara para que el G1 la ejecute (default 0.8)")
-    p.add_argument("--mic", choices=["auto", "pc", "g1", "robot"], default="auto",
+    p.add_argument("--mic", choices=["auto", "pc", "g1", "robot"], default=None,
                    help="Micrófono de voz: robot = el micrófono USB conectado al PC2 del robot (se detecta y arranca "
                         "por SSH), g1 = multicast del G1, pc = esta PC, "
                         "auto = el del robot al usar el robot real (con respaldo a la PC), PC en simulación")
@@ -225,31 +225,49 @@ def main():
     if args.camara_g1_mono:
         config.camara_g1_binocular = False
     config.camara_g1_auto = not args.sin_auto_g1
-    config.camara_g1_usuario = args.g1_usuario
-    config.camara_g1_clave = args.g1_clave
-    config.camara_g1_nombre = args.g1_camara_nombre
+    # Las opciones de línea de comandos mandan; si no se dan, valen los Ajustes guardados en config.json
+    if args.g1_usuario:
+        config.camara_g1_usuario = args.g1_usuario
+    if args.g1_clave:
+        config.camara_g1_clave = args.g1_clave
+    if args.g1_camara_nombre:
+        config.camara_g1_nombre = args.g1_camara_nombre
     config.robot_activo = not args.sin_robot
     config.usar_v2 = args.v2 or config.usar_v2
 
-    if args.sonic_escala is not None and not 0.0 < args.sonic_escala <= 1.0:
-        raise SystemExit("--sonic-escala debe estar en (0, 1]")
-    if args.sonic_real and args.sonic_tiempo is not None and args.sonic_tiempo < 1.0:
-        raise SystemExit("--sonic-tiempo no puede ser < 1 con --sonic-real")
-    sonic_opciones = dict(modo_real=args.sonic_real, escala=args.sonic_escala,
-                          factor_tiempo=args.sonic_tiempo, vel_max=args.sonic_vel_max,
-                          confianza_min=args.sonic_confianza, manos=args.manos,
+    def de(arg, atributo, solo_real=False):
+        """Valor dado al lanzar, o el de Ajustes (los de movimiento solo con el robot real)."""
+        if arg is not None:
+            return arg
+        if solo_real and not args.sonic_real:
+            return None
+        return getattr(config, atributo, None)
+
+    escala = de(args.sonic_escala, "sonic_escala", True)
+    tiempo = de(args.sonic_tiempo, "sonic_tiempo", True)
+    vel_max = de(args.sonic_vel_max, "sonic_vel_max", True)
+    if escala is not None and not 0.0 < escala <= 1.0:
+        raise SystemExit("La amplitud (--sonic-escala o Ajustes) debe estar en (0, 1]")
+    if args.sonic_real and tiempo is not None and tiempo < 1.0:
+        raise SystemExit("El factor de tiempo (--sonic-tiempo o Ajustes) no puede ser < 1 con --sonic-real")
+    mic = de(args.mic, "mic_fuente") or "auto"
+    mic_indice = args.mic_indice if args.mic_indice is not None else (
+        config.mic_indice if getattr(config, "mic_indice", -1) >= 0 else None)
+    sonic_opciones = dict(modo_real=args.sonic_real, escala=escala, factor_tiempo=tiempo, vel_max=vel_max,
+                          confianza_min=de(args.sonic_confianza, "sonic_confianza") or 0.8,
+                          manos=de(args.manos, "sonic_manos") or "auto",
                           auto_enlazar_camara=not args.sin_auto_enlace)
-    sonic_opciones.update(mic=args.mic, mic_iface_ip=args.mic_g1_ip,
+    sonic_opciones.update(mic=mic, mic_iface_ip=args.mic_g1_ip,
                           robot_host=getattr(config, "camara_g1_host", None) or "192.168.123.164",
                           robot_usuario=getattr(config, "camara_g1_usuario", None) or "unitree",
                           robot_clave=getattr(config, "camara_g1_clave", None),
-                          gr00t_dir=args.gr00t_dir, interfaz=args.iface,
+                          gr00t_dir=args.gr00t_dir, interfaz=args.iface or (getattr(config, "sonic_iface", "") or None),
                           mujoco_pos=_par(args.mujoco_pos, ",", "--mujoco-pos"),
                           mujoco_tam=_par(args.mujoco_tam, "x", "--mujoco-tam"),
                           integrado=not args.terminales)
-    if args.mic_indice is not None:
-        os.environ["LSC_MIC_IDX"] = str(args.mic_indice)
-    log.info(f"Micrófono de voz: {args.mic} (auto = G1 con robot real, PC con simulación)")
+    if mic_indice is not None:
+        os.environ["LSC_MIC_IDX"] = str(mic_indice)
+    log.info(f"Micrófono de voz: {mic} (auto = el del robot con robot real, PC con simulación)")
     app = AppUnificada(config, sonic_opciones, verificar_al_inicio=not args.sin_verificar)
     app.ejecutar()
 
