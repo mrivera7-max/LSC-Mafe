@@ -16,3 +16,7 @@ entrega_*/
 entrega_*.zip
 *.bak_*
 *.tgz
+data/*.bak.pkl
+dataset_lsc/
+LSC-Captura-Dataset_v3*
+lsc-actualizacion-completa*

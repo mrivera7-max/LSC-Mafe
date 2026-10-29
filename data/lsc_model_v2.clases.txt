@@ -1,7 +1,9 @@
 Bien
+BuenosDias
 Gracias
 Hola
 Mal
 No
+PorFavor
 Si
 Silencio
