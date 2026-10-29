@@ -137,8 +137,12 @@ def parsear_args():
     p = argparse.ArgumentParser(description="LSC UDI — aplicación unificada")
     p.add_argument("--sin-robot", action="store_true",
                    help="Ejecutar sin conectar al robot G1")
+    p.add_argument("--simulacion", action="store_true",
+                   help="Forzar simulación aunque el robot esté conectado (equivale a --sin-robot)")
+    p.add_argument("--estatico", action="store_true",
+                   help="Usar el reconocedor estático en vez del v2 (por defecto se usa v2)")
     p.add_argument("--v2", action="store_true",
-                   help="Usar reconocedor v2 (secuencial mano+cara, recomendado)")
+                   help="(ya es el valor por defecto) reconocedor v2 secuencial mano+cara")
     p.add_argument("--camara", type=int, default=0, help="Índice de cámara")
     p.add_argument("--camara-g1", nargs="?", const="192.168.123.164", metavar="IP",
                    help="IP del PC2 del G1 (teleimager-server) para el botón «Cámara G1» (default 192.168.123.164)")
@@ -208,6 +212,16 @@ def _par(texto, sep, nombre):
         raise SystemExit(f"{nombre}: formato inválido ({texto!r}), esperaba dos números separados por «{sep}»")
 
 
+def robot_alcanzable(host: str, puerto: int = 22, espera: float = 2.0) -> bool:
+    """True si el PC2 del G1 responde por red (SSH)."""
+    import socket
+    try:
+        with socket.create_connection((host, puerto), timeout=espera):
+            return True
+    except OSError:
+        return False
+
+
 def main():
     args = parsear_args()
     configurar_logger(nivel=args.log_nivel)
@@ -232,8 +246,19 @@ def main():
         config.camara_g1_clave = args.g1_clave
     if args.g1_camara_nombre:
         config.camara_g1_nombre = args.g1_camara_nombre
+    # Modo automático: sin flags, la app detecta si el robot está en la red y elige real o simulación
+    if args.simulacion:
+        args.sin_robot = True
+    host_g1 = getattr(config, "camara_g1_host", None) or "192.168.123.164"
+    if not args.sin_robot and not args.sonic_real:
+        if robot_alcanzable(host_g1):
+            args.sonic_real = True
+            log.info(f"Robot detectado en {host_g1}: modo REAL")
+        else:
+            args.sin_robot = True
+            log.info(f"Robot no responde en {host_g1}: modo SIMULACIÓN")
     config.robot_activo = not args.sin_robot
-    config.usar_v2 = args.v2 or config.usar_v2
+    config.usar_v2 = False if args.estatico else (True if args.v2 else config.usar_v2)
 
     def de(arg, atributo, solo_real=False):
         """Valor dado al lanzar, o el de Ajustes (los de movimiento solo con el robot real)."""
