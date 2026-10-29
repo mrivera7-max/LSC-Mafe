@@ -12,3 +12,7 @@ venv/
 *.bak_gracias
 __pycache__/
 venv/
+entrega_*/
+entrega_*.zip
+*.bak_*
+*.tgz
