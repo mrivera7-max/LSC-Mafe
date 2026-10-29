@@ -30,26 +30,27 @@ def parsear_args():
 def cargar_dataset(directorio: str):
     dir_path = Path(directorio)
     if not dir_path.exists():
-        log.error(f"Directorio no encontrado: {directorio}")
-        log.info("Ejecuta primero: python models/capturar_secuencias.py")
-        sys.exit(1)
+        raise ValueError(f"Directorio no encontrado: {directorio} (captura o carga datos primero)")
 
     clases = sorted([d.name for d in dir_path.iterdir() if d.is_dir()])
     if not clases:
-        log.error(f"No se encontraron carpetas de clases en {directorio}")
-        sys.exit(1)
+        raise ValueError(f"No se encontraron carpetas de clases en {directorio}")
 
     log.info(f"Clases encontradas: {clases}")
 
     X, y = [], []
     for idx_clase, clase in enumerate(clases):
         carpeta = dir_path / clase
-        archivos = sorted(carpeta.glob("*.npy"))
+        # «*_frames.npy» (features por frame del capturador dual) no son vectores de secuencia
+        archivos = sorted(a for a in carpeta.glob("*.npy") if not a.stem.endswith("_frames"))
         log.info(f"  {clase}: {len(archivos)} secuencias")
 
         for archivo in archivos:
             try:
                 vector = np.load(archivo)
+                if vector.ndim != 1 or (X and vector.shape != X[0].shape):
+                    log.warning(f"  {archivo.name}: forma {vector.shape} distinta, se omite")
+                    continue
                 X.append(vector)
                 y.append(idx_clase)
             except Exception as e:
@@ -104,56 +105,51 @@ def entrenar_svm(X_train, y_train):
     return modelo
 
 
+def entrenar_y_guardar(datos="data/sequences", salida="data/lsc_model_v2.pkl", modelo="mlp", test_size=0.2):
+    """Entrena con las secuencias de `datos` y guarda modelo + .clases.txt. Devuelve un dict con
+    precisión, clases y reporte. Lanza ValueError/ImportError con un mensaje claro si no se puede."""
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report, accuracy_score
+    import joblib
+
+    X, y, clases = cargar_dataset(datos)
+    if len(X) == 0:
+        raise ValueError("No se cargaron secuencias.")
+    if len(clases) < 2:
+        raise ValueError("Se necesitan al menos 2 clases para entrenar.")
+    conteo = np.bincount(y)
+    if conteo.min() < 2:
+        pocas = [clases[i] for i in np.where(conteo < 2)[0]]
+        raise ValueError(f"Clases con menos de 2 secuencias: {', '.join(pocas)}")
+    log.info(f"Dataset: {len(X)} secuencias, {len(clases)} clases, {X.shape[1]} features por secuencia")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, stratify=y, random_state=42)
+    log.info(f"Entrenando clasificador: {modelo.upper()}...")
+    entrenadores = {"mlp": entrenar_mlp, "rf": entrenar_rf, "svm": entrenar_svm}
+    clf = entrenadores[modelo](X_train, y_train)
+    y_pred = clf.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    presentes = sorted(set(y_test) | set(y_pred))
+    reporte = classification_report(y_test, y_pred, labels=presentes,
+                                    target_names=[clases[i] for i in presentes], zero_division=0)
+    salida = Path(salida)
+    salida.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(clf, salida)
+    salida.with_suffix(".clases.txt").write_text("\n".join(clases), encoding="utf-8")
+    log.info(f"Modelo guardado en '{salida}' (precisión en test {acc * 100:.2f}%)")
+    return {"precision": float(acc), "clases": clases, "reporte": reporte,
+            "n_secuencias": int(len(X)), "salida": str(salida)}
+
+
 def main():
     configurar_logger()
     args = parsear_args()
-
     try:
-        from sklearn.model_selection import train_test_split
-        from sklearn.metrics import classification_report, accuracy_score
-        import joblib
-    except ImportError:
-        log.error("Instala scikit-learn: pip install scikit-learn")
+        r = entrenar_y_guardar(args.datos, args.salida, args.modelo, args.test_size)
+    except (ValueError, ImportError) as e:
+        log.error(str(e))
         sys.exit(1)
-
-    log.info(f"Cargando dataset desde '{args.datos}'...")
-    X, y, clases = cargar_dataset(args.datos)
-
-    if len(X) == 0:
-        log.error("No se cargaron secuencias.")
-        sys.exit(1)
-
-    log.info(f"Dataset: {len(X)} secuencias, {len(clases)} clases, {X.shape[1]} features por secuencia")
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=args.test_size, stratify=y, random_state=42
-    )
-
-    log.info(f"Entrenando clasificador: {args.modelo.upper()}...")
-    entrenadores = {"mlp": entrenar_mlp, "rf": entrenar_rf, "svm": entrenar_svm}
-    modelo = entrenadores[args.modelo](X_train, y_train)
-
-    y_pred = modelo.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    log.info(f"\nPrecision en test: {acc*100:.2f}%\n")
-
-    etiquetas_presentes = sorted(set(y_test) | set(y_pred))
-    nombres_presentes = [clases[i] for i in etiquetas_presentes]
-    print(classification_report(
-        y_test, y_pred,
-        labels=etiquetas_presentes,
-        target_names=nombres_presentes,
-        zero_division=0,
-    ))
-
-    salida = Path(args.salida)
-    salida.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(modelo, salida)
-    log.info(f"Modelo guardado en '{salida}'")
-
-    clases_path = salida.with_suffix(".clases.txt")
-    clases_path.write_text("\n".join(clases), encoding="utf-8")
-    log.info(f"Clases guardadas en '{clases_path}'")
+    log.info(f"\nPrecision en test: {r['precision'] * 100:.2f}%\n")
+    print(r["reporte"])
 
 
 if __name__ == "__main__":

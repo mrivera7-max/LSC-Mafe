@@ -86,6 +86,8 @@ class AppUnificada:
         notebook.add(tab_voz, text="  🎤  Voz / Texto → Seña  ")
         tab_con = tk.Frame(notebook, bg="#0d1117")
         notebook.add(tab_con, text="  🖥  Consola  ")
+        tab_datos = tk.Frame(notebook, bg="#1a1a2e")
+        notebook.add(tab_datos, text="  📁  Datos  ")
 
         # ── Montar cada sistema dentro de su pestaña ──────────────
         # Cada clase construye su UI sobre el frame que le pasamos,
@@ -101,6 +103,12 @@ class AppUnificada:
         self.panel_camara.ejecutar_seña_sonic = self.panel_voz.ejecutar_desde_camara
         self.panel_camara.estado_destino = self.panel_voz.estado_replica
 
+        # ── Datos: capturar señas con la cámara, o cargar capturas, y reentrenar
+        from gui.panel_datos import PanelDatos
+        self.panel_datos = PanelDatos(tab_datos, self.config, self._raiz,
+                                      antes_de_capturar=self.panel_camara._detener_camara)
+        self.panel_datos.pack(fill="both", expand=True)
+
         # ── Verificación de arranque: deja todo listo y lo muestra en la pestaña «Conexión»
         from gui.panel_conexion import PanelConexion
         from robot.verificacion import Verificador
@@ -112,11 +120,16 @@ class AppUnificada:
         else:
             notebook.select(tab_cam)
 
-        log.info("Ventana unificada iniciada (4 pestañas: conexión, cámara, voz y consola)")
+        log.info("Ventana unificada iniciada (5 pestañas: conexión, cámara, voz, consola y datos)")
         self._raiz.mainloop()
 
     def _al_cerrar(self):
         log.info("Cerrando LSC UDI...")
+        try:
+            if getattr(self, "panel_datos", None):
+                self.panel_datos.cerrar()
+        except Exception as e:
+            log.warning(f"Error al cerrar el capturador: {e}")
         # Cerrar limpiamente ambos sistemas
         try:
             if self.panel_camara:
