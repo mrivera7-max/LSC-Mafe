@@ -126,6 +126,13 @@ class ServidorVozASena:
         secuencia = self.generador.generar(
             resultado_traduccion.secuencia_señas, texto_original=texto
         )
+        if not secuencia.pasos:
+            nombres = ", ".join(resultado_traduccion.secuencia_señas)
+            return {
+                "exito": False,
+                "mensaje": f"La seña «{nombres}» está reconocida pero el robot aún no tiene su movimiento",
+                "no_reconocidas": [],
+            }
         datos = self.generador.a_dict_serializable(secuencia)
         datos["exito"] = True
         datos["no_reconocidas"] = resultado_traduccion.palabras_no_reconocidas

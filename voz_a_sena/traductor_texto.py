@@ -38,6 +38,7 @@ SINONIMOS_A_SENA = {
 
     # Buenos días (seña propia, dataset de Néstor)
     "buenos dias": "BuenosDias",
+    "buenosdias": "BuenosDias",
     "muy buenos dias": "BuenosDias",
     "buen dia": "BuenosDias",
     "feliz dia": "BuenosDias",
@@ -131,8 +132,43 @@ class TraductorTextoLSC:
 
     def __init__(self, diccionario: Optional[dict] = None):
         self.diccionario = dict(diccionario) if diccionario else dict(SINONIMOS_A_SENA)
+        self.señas_validas = set(SEÑAS_VALIDAS)
+        self.registrar_señas(self._vocabulario_externo())
         self._cargar_sinonimos_personalizados()
         self._reordenar_claves()
+
+    @staticmethod
+    def _vocabulario_externo() -> list:
+        """Un solo vocabulario para texto, cámara y robot: las señas que el robot sabe hacer más las
+        clases del modelo de la cámara (así una seña entrenada en la pestaña Datos también se escribe)."""
+        nombres = set()
+        try:
+            from voz_a_sena.generador_posturas import señas_ejecutables
+            nombres.update(señas_ejecutables())
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"Sin señas del robot: {e}")
+        clases = Path(__file__).resolve().parent.parent / "data" / "lsc_model_v2.clases.txt"
+        try:
+            if clases.exists():
+                nombres.update(c for c in clases.read_text(encoding="utf-8").split() if c)
+        except OSError:
+            pass
+        return sorted(nombres)
+
+    def registrar_señas(self, nombres) -> list:
+        """Hace que cada seña se pueda escribir por su nombre («BuenosDias» → «buenos dias», «buenosdias»).
+        No pisa palabras ya definidas. Devuelve las señas añadidas al vocabulario."""
+        nuevas = []
+        for nombre in nombres:
+            if nombre not in self.señas_validas:
+                self.señas_validas.add(nombre)
+                nuevas.append(nombre)
+            separado = re.sub(r"(?<=[a-záéíóúñ])(?=[A-ZÁÉÍÓÚÑ])", " ", nombre)
+            for forma in {_normalizar(nombre), _normalizar(separado)}:
+                if forma and forma not in self.diccionario:
+                    self.diccionario[forma] = nombre
+        self._reordenar_claves()
+        return nuevas
 
     def _reordenar_claves(self):
         # Ordenar las claves por longitud de palabras (descendente) para
@@ -148,8 +184,13 @@ class TraductorTextoLSC:
         try:
             with open(RUTA_SINONIMOS_PERSONALIZADOS, "r", encoding="utf-8") as f:
                 personalizados = json.load(f)
-            self.diccionario.update(personalizados)
-            log.info(f"Cargados {len(personalizados)} sinonimos personalizados")
+            # Un sinónimo guardado con una seña inexistente (o vacía) taparía al del diccionario base
+            validos = {k: v for k, v in personalizados.items() if v in self.señas_validas}
+            ignorados = sorted(set(personalizados) - set(validos))
+            if ignorados:
+                log.warning(f"Sinónimos personalizados ignorados (seña no válida): {ignorados}")
+            self.diccionario.update(validos)
+            log.info(f"Cargados {len(validos)} sinonimos personalizados")
         except Exception as e:
             log.error(f"Error cargando sinonimos personalizados: {e}")
 
@@ -221,8 +262,8 @@ class TraductorTextoLSC:
 
     def agregar_sinonimo(self, frase: str, sena: str) -> bool:
         """Agrega un nuevo sinonimo y lo guarda en disco. Retorna True si fue exitoso."""
-        if sena not in SEÑAS_VALIDAS:
-            log.warning(f"'{sena}' no es una sena valida. Validas: {SEÑAS_VALIDAS}")
+        if sena not in self.señas_validas:
+            log.warning(f"'{sena}' no es una sena valida. Validas: {sorted(self.señas_validas)}")
             return False
         clave = _normalizar(frase)
         if not clave:

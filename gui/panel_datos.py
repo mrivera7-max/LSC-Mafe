@@ -33,11 +33,14 @@ MIN_RECOMENDADO = 30
 
 class PanelDatos(tk.Frame):
     def __init__(self, padre, config, raiz_tk,
-                 antes_de_capturar: Optional[Callable[[], None]] = None):
+                 antes_de_capturar: Optional[Callable[[], None]] = None,
+                 tras_entrenar: Optional[Callable[[list], str]] = None):
         super().__init__(padre, bg=BG)
         self.config = config
         self._raiz = raiz_tk
         self._antes = antes_de_capturar
+        self._tras = tras_entrenar
+        self._sena_inicial = ""
         self._proc: Optional[subprocess.Popen] = None
         self._entrenando = False
         self._construir()
@@ -60,6 +63,8 @@ class PanelDatos(tk.Frame):
         tk.Label(self, text="Datos de señas: capturar o cargar, y reentrenar el reconocedor",
                  bg=BG, fg=TXT, font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=16, pady=(12, 0))
 
+        self._lbl_sena = tk.Label(self, text="", bg=BG, fg="#c4b5fd", font=("Segoe UI", 10, "bold"))
+        self._lbl_sena.pack(anchor="w", padx=16)
         c1 = self._caja("1 · Capturar con la cámara")
         tk.Label(c1, text="Abre el capturador dual (la cámara de la pestaña «Cámara → Seña» se detiene "
                  "mientras tanto). Cada secuencia guarda vector, frames e imágenes en dataset_lsc/.",
@@ -88,7 +93,7 @@ class PanelDatos(tk.Frame):
         est = ttk.Style()
         est.configure("Datos.Treeview", background="#0d1117", fieldbackground="#0d1117", foreground=TXT,
                       rowheight=22)
-        self._tabla = ttk.Treeview(c3, columns=("clase", "n", "estado"), show="headings", height=6,
+        self._tabla = ttk.Treeview(c3, columns=("clase", "n", "estado"), show="headings", height=10,
                                    style="Datos.Treeview")
         for col, texto, ancho in (("clase", "Seña", 180), ("n", "Secuencias", 100), ("estado", "Estado", 520)):
             self._tabla.heading(col, text=texto)
@@ -106,9 +111,17 @@ class PanelDatos(tk.Frame):
         self._btn_ent.pack(side="left", padx=8)
         self._lbl_ent = tk.Label(fila, text="", bg=PANEL, fg=SEC, font=("Segoe UI", 9))
         self._lbl_ent.pack(side="left", padx=8)
-        self._log = tk.Text(c4, height=9, bg="#0d1117", fg="#cbd5e1", font=("Consolas", 9), relief="flat",
+        self._log = tk.Text(c4, height=6, bg="#0d1117", fg="#cbd5e1", font=("Consolas", 9), relief="flat",
                             wrap="word", state="disabled")
         self._log.pack(fill="x", pady=(6, 0))
+
+    def preparar(self, nombre: str = ""):
+        """Llega desde «Enseñar» en Voz/Texto: el capturador abrirá con esta seña ya escrita."""
+        import re
+        limpio = re.sub(r"[^a-z0-9_]", "", "_".join((nombre or "").lower().split()))
+        self._sena_inicial = limpio
+        self._lbl_sena.configure(text=f"Seña a enseñar: «{nombre}» — captúrala o carga sus datos, y reentrena."
+                                 if nombre else "")
 
     # ── utilidades ──────────────────────────────────────────────
     def _escribir(self, texto: str):
@@ -164,6 +177,8 @@ class PanelDatos(tk.Frame):
             messagebox.showerror("Cámara", f"No hay cámara disponible para capturar:\n{msg}")
             return
         env["LSC_CAMARA_IDX"] = str(idx)
+        if self._sena_inicial:
+            env["LSC_SENA_INICIAL"] = self._sena_inicial
         log.info(f"Capturador: {msg}")
         try:
             self._proc = subprocess.Popen([sys.executable, str(RAIZ / "captura" / "app_captura_lsc.py")],
@@ -246,9 +261,8 @@ class PanelDatos(tk.Frame):
                 self._escribir(f"Respaldo del modelo anterior: {copia.name}")
             r = entrenar_y_guardar(str(DIR_SECUENCIAS), str(salida), tipo)
             self._escribir(r["reporte"])
-            msg = (f"Listo: precisión {r['precision'] * 100:.1f}% en {len(r['clases'])} señas. "
-                   "Reinicia la app para usar el modelo nuevo.")
-            self._raiz.after(0, lambda: self._fin_entrenar(msg, True))
+            msg = f"Listo: precisión {r['precision'] * 100:.1f}% en {len(r['clases'])} señas. "
+            self._raiz.after(0, lambda: self._fin_entrenar(msg, True, r["clases"]))
         except (ValueError, ImportError) as e:
             self._escribir(f"ERROR: {e}")
             self._raiz.after(0, lambda: self._fin_entrenar(f"No se pudo entrenar: {e}", False))
@@ -259,8 +273,14 @@ class PanelDatos(tk.Frame):
         finally:
             lg.removeHandler(manejador)
 
-    def _fin_entrenar(self, msg: str, ok: bool):
+    def _fin_entrenar(self, msg: str, ok: bool, clases=None):
         self._entrenando = False
+        if ok and self._tras:
+            try:      # recarga el modelo de la cámara y el vocabulario del texto, sin reiniciar
+                msg += self._tras(clases or [])
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"Recarga tras entrenar: {e}")
+                msg += "Reinicia la app para usar el modelo nuevo."
         self._btn_ent.configure(state="normal")
         self._lbl_ent.configure(text=msg, fg=VERDE if ok else ROJO)
         self.refrescar()

@@ -26,13 +26,31 @@ except ImportError as e:
     POSTURAS_G1 = {}
 
 
+try:                                   # señas con movimiento propio de SONIC (BuenosDias, PorFavor, ...)
+    from robot.conector_sonic import SEÑAS_SONIC
+except Exception as e:  # noqa: BLE001
+    log.warning(f"SEÑAS_SONIC no disponible: {e}")
+    SEÑAS_SONIC = {}
+
+
+def señas_ejecutables() -> list:
+    """Señas que el robot sabe hacer: las de POSTURAS_G1 más las de SEÑAS_SONIC."""
+    return sorted((set(POSTURAS_G1) | set(SEÑAS_SONIC)) - {"REPOSO"})
+
+
 @dataclass
 class PasoSecuencia:
     """Un paso dentro de la secuencia completa de senas a ejecutar."""
     nombre_sena: str
-    comando: "object"  # ComandoArticular
+    comando: "object"  # ComandoArticular; None si la seña solo existe en SEÑAS_SONIC
     indice: int
     total: int
+
+    @property
+    def duracion(self) -> float:
+        if self.comando is not None:
+            return self.comando.duracion
+        return float(sum(f[1] for f in SEÑAS_SONIC.get(self.nombre_sena, ())))
 
 
 @dataclass
@@ -42,7 +60,7 @@ class SecuenciaCompleta:
 
     @property
     def duracion_total_segundos(self) -> float:
-        return sum(p.comando.duracion for p in self.pasos)
+        return sum(p.duracion for p in self.pasos)
 
     def __len__(self):
         return len(self.pasos)
@@ -77,8 +95,8 @@ class GeneradorPosturas:
 
         for idx, nombre_sena in enumerate(secuencia_señas):
             comando = POSTURAS_G1.get(nombre_sena)
-            if comando is None:
-                log.warning(f"No hay postura definida para '{nombre_sena}', se omite")
+            if comando is None and nombre_sena not in SEÑAS_SONIC:
+                log.warning(f"No hay movimiento definido para '{nombre_sena}', se omite")
                 continue
             pasos.append(PasoSecuencia(
                 nombre_sena=nombre_sena,
@@ -107,8 +125,8 @@ class GeneradorPosturas:
                     "sena": p.nombre_sena,
                     "indice": p.indice,
                     "total": p.total,
-                    "duracion": p.comando.duracion,
-                    "articulaciones": {
+                    "duracion": p.duracion,
+                    "articulaciones": {} if p.comando is None else {
                         "hombro_izq_pitch": p.comando.hombro_izq_pitch,
                         "hombro_izq_roll": p.comando.hombro_izq_roll,
                         "codo_izq": p.comando.codo_izq,

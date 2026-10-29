@@ -230,7 +230,7 @@ class CapturaApp:
         frame = ttk.LabelFrame(self.root, text="Información de captura")
         frame.pack(padx=20, pady=(8, 6), fill="x")
 
-        self.var_sena = tk.StringVar()
+        self.var_sena = tk.StringVar(value=os.environ.get("LSC_SENA_INICIAL", ""))
         self.var_estudiante = tk.StringVar(value="E01")
         self.var_participante = tk.StringVar(value="P001")
         self.var_sesion = tk.StringVar(value="01")

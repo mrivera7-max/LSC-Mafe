@@ -69,6 +69,7 @@ class VentanaVozASena:
         if mic == "g1":
             self._fuente_voz = "g1"
         self.robot = None  # ConectorG1 compartido; lo asigna app_unificada.py
+        self.abrir_datos = lambda nombre=None: None  # la asigna app_unificada.py (lleva a la pestaña Datos)
         self.sonic = None  # ConectorSonic (MuJoCo, 29 GDL); se crea al enlazar con la simulación o el robot real
         self._raiz = None
         self._contenedor = None
@@ -536,6 +537,11 @@ class VentanaVozASena:
         self._frame_ensenar = tk.Frame(panel_resultado, bg=c_panel)
         self._frame_ensenar.pack(fill="x", pady=(8, 0))
         self._texto_pendiente_ensenar = ""
+        tk.Button(
+            panel_resultado, text="📁  Enseñar / entrenar señas (capturar con cámara o cargar datos)",
+            bg="#374151", fg="#e2e8f0", relief="flat", font=("Segoe UI", 9, "bold"), padx=10, pady=4,
+            cursor="hand2", command=lambda: self.abrir_datos(None),
+        ).pack(anchor="w", pady=(6, 0))
 
         # Log de actividad
         panel_log = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
@@ -719,7 +725,7 @@ class VentanaVozASena:
 
     def _abrir_dialogo_ensenar(self):
         """Abre una ventana pequena para elegir a que sena mapear la frase."""
-        from voz_a_sena.traductor_texto import SEÑAS_VALIDAS
+        señas_validas = sorted(self.servidor.traductor.señas_validas)
 
         dialogo = tk.Toplevel(self._raiz)
         dialogo.title("Ensenar nuevo sinonimo")
@@ -734,7 +740,7 @@ class VentanaVozASena:
         ).pack(anchor="w")
 
         tk.Label(
-            dialogo, text="Quiero que se traduzca a la sena:",
+            dialogo, text="Es otra forma de decir una seña que ya existe. Elige cuál:",
             bg="#16213e", fg="#94a3b8", font=("Segoe UI", 10),
             padx=20,
         ).pack(anchor="w")
@@ -742,7 +748,7 @@ class VentanaVozASena:
         frame_botones = tk.Frame(dialogo, bg="#16213e", padx=20, pady=12)
         frame_botones.pack()
 
-        for i, sena in enumerate(SEÑAS_VALIDAS):
+        for i, sena in enumerate(señas_validas):
             fila, col = divmod(i, 4)
             tk.Button(
                 frame_botones, text=sena, bg="#2563eb", fg="white",
@@ -751,6 +757,14 @@ class VentanaVozASena:
                 command=lambda s=sena: self._confirmar_ensenanza(s, dialogo),
             ).grid(row=fila, column=col, padx=4, pady=4)
 
+        tk.Label(dialogo, text="¿O es una seña nueva?", bg="#16213e", fg="#94a3b8",
+                 font=("Segoe UI", 10), padx=20).pack(anchor="w")
+        tk.Button(
+            dialogo, text="➕  Seña nueva: capturar con la cámara o cargar datos",
+            bg="#7c3aed", fg="white", relief="flat", font=("Segoe UI", 10, "bold"),
+            padx=14, pady=8, cursor="hand2",
+            command=lambda: (dialogo.destroy(), self.abrir_datos(self._texto_pendiente_ensenar)),
+        ).pack(pady=(4, 8))
         tk.Button(
             dialogo, text="Cancelar", bg="#374151", fg="#e2e8f0",
             relief="flat", font=("Segoe UI", 9), padx=12, pady=6,

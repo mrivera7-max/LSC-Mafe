@@ -106,8 +106,12 @@ class AppUnificada:
         # ── Datos: capturar señas con la cámara, o cargar capturas, y reentrenar
         from gui.panel_datos import PanelDatos
         self.panel_datos = PanelDatos(tab_datos, self.config, self._raiz,
-                                      antes_de_capturar=self.panel_camara._detener_camara)
+                                      antes_de_capturar=self.panel_camara._detener_camara,
+                                      tras_entrenar=self._recargar_modelo)
         self.panel_datos.pack(fill="both", expand=True)
+        # «Enseñar» en Voz/Texto lleva a esta pestaña con el nombre de la seña ya puesto
+        self.panel_voz.abrir_datos = lambda nombre=None: (self.panel_datos.preparar(nombre or ""),
+                                                          notebook.select(tab_datos))
 
         # ── Verificación de arranque: deja todo listo y lo muestra en la pestaña «Conexión»
         from gui.panel_conexion import PanelConexion
@@ -122,6 +126,21 @@ class AppUnificada:
 
         log.info("Ventana unificada iniciada (5 pestañas: conexión, cámara, voz, consola y datos)")
         self._raiz.mainloop()
+
+    def _recargar_modelo(self, clases) -> str:
+        """Tras reentrenar: la cámara usa el modelo nuevo y el texto entiende las señas nuevas, sin reiniciar."""
+        partes = []
+        rec = getattr(self.panel_camara, "_reconocedor", None)
+        if rec is not None and hasattr(rec, "_cargar_clasificador"):
+            rec._cargar_clasificador()
+            partes.append("cámara recargada")
+        trad = getattr(getattr(self.panel_voz, "servidor", None), "traductor", None)
+        if trad is not None:
+            trad.registrar_señas(clases)
+            partes.append("texto actualizado")
+        if not partes:
+            return "Reinicia la app para usar el modelo nuevo."
+        return "(" + ", ".join(partes) + ")"
 
     def _al_cerrar(self):
         log.info("Cerrando LSC UDI...")
