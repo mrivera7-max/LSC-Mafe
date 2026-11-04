@@ -189,8 +189,8 @@ SEÑAS_SONIC = {
         ({**_GRACIAS_2, **_espejo(_GRACIAS_2)}, 1.0, _MANOS_GRACIAS),
     ],
     # puño frente al pecho que asiente (cabeceo de la muñeca)
-    # «Sí»: puño que cabecea; el movimiento lo hace el codo (joint 25, right_elbow_joint), la muñeca queda fija
-    "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(25, _SI[25], 0.30, 3, 0.30) + [({25: _SI[25]}, 0.3)],
+    # «Sí»: puño que cabecea; con el wrist roll en -90° el wrist yaw (joint 28) mueve la mano de arriba a abajo
+    "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(28, _SI[28], 0.45, 3, 0.30) + [({28: _SI[28]}, 0.3)],
     # «No»: la seña real es un giro de cabeza; el G1 no tiene cuello → giro de cintura + índice que se mueve
     "No": [(_NO_BASE, 1.0, {"der": (0.3, 0.3, 0.4, 1.0, 0.25, 0.55)})] + _NO_KF + [({**_NO_BASE, 12: 0.0}, 0.4)],
     "BuenosDias": [
