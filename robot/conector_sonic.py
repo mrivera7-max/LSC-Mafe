@@ -141,7 +141,7 @@ _PUNO = (0.0, 0.0, 0.0, 0.0, 0.2, 0.5)
 _PUNO_SUAVE = (0.3, 0.3, 0.35, 0.4, 0.5, 0.5)
 
 # Sí: puño a la altura del hombro, antebrazo vertical, cabeceo de muñeca
-_SI = {22: -0.03, 23: -0.27, 24: -0.17, 25: -0.27, 26: 0.39, 27: -0.92, 28: 0.11}
+_SI = {22: -0.03, 23: -0.27, 24: -0.17, 25: -0.27, 26: 1.5708, 27: -0.92, 28: 0.11}   # muñeca (26) girada 90°
 
 # Por favor: puño sobre el pecho dibujando un círculo de 4,5 cm de radio (6 puntos, sentido horario)
 _POR_FAVOR = [
@@ -189,7 +189,8 @@ SEÑAS_SONIC = {
         ({**_GRACIAS_2, **_espejo(_GRACIAS_2)}, 1.0, _MANOS_GRACIAS),
     ],
     # puño frente al pecho que asiente (cabeceo de la muñeca)
-    "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(27, -0.92, 0.35, 3, 0.28) + [({27: -0.92}, 0.3)],
+    # «Sí»: puño que cabecea; el movimiento lo hace el codo (joint 25, right_elbow_joint), la muñeca queda fija
+    "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(25, _SI[25], 0.30, 3, 0.30) + [({25: _SI[25]}, 0.3)],
     # «No»: la seña real es un giro de cabeza; el G1 no tiene cuello → giro de cintura + índice que se mueve
     "No": [(_NO_BASE, 1.0, {"der": (0.3, 0.3, 0.4, 1.0, 0.25, 0.55)})] + _NO_KF + [({**_NO_BASE, 12: 0.0}, 0.4)],
     "BuenosDias": [
