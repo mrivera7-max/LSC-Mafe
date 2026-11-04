@@ -209,12 +209,17 @@ SEÑAS_SONIC = {
     # puño que gira hasta apuntar el pulgar hacia abajo (el brazo se abre porque el G1 no tiene pronación)
     "Mal": [
         ({22: -0.05, 23: -0.02, 24: 0.11, 25: -0.97, 26: 0.04, 27: 1.00, 28: -0.16}, 0.9),
-        ({22: -0.20, 23: -1.26, 24: 0.54, 25: -0.47, 26: -1.60, 27: 0.01, 28: 0.21}, 1.2),
+        ({22: -0.20, 23: -1.26, 24: 0.54, 25: -0.47, 26: -1.92, 27: 0.01, 28: 0.21}, 1.4),
     ],
     # índice sobre los labios, quieto
     "Silencio": [({22: -0.36, 23: -0.13, 24: 1.05, 25: -0.64, 26: 0.32, 27: -0.93, 28: -0.11}, 1.1),
                  ({}, 1.0)],
 }
+
+
+# Joints que NO se reducen con `escala` (amplitud del modo real) en una seña: el giro de la muñeca de «Mal»
+# necesita todo su recorrido (el wrist roll llega a ±1.97 rad) y no choca con nada.
+SIN_ESCALA = {"Mal": {26}}
 
 
 def comando_a_objetivos_mj(cmd: ComandoArticular) -> Dict[int, float]:
@@ -462,7 +467,7 @@ class ConectorSonic:
             for i, fotograma in enumerate(secuencia):
                 objetivos, dur = fotograma[0], fotograma[1]
                 manos = fotograma[2] if len(fotograma) > 2 else ({"der": nombre_seña} if i == 0 else None)
-                self.ir_a(objetivos, dur, manos=manos)
+                self.ir_a(objetivos, dur, manos=manos, sin_escala=SIN_ESCALA.get(nombre_seña, ()))
         else:
             log.info(f"→ SONIC: {nombre_seña} ({cmd.duracion:.1f} s)")
             self.ir_a(comando_a_objetivos_mj(cmd), cmd.duracion,
@@ -476,7 +481,7 @@ class ConectorSonic:
         return True
 
     def ir_a(self, objetivos_mj: Dict[int, float], duracion: float, esperar: bool = True,
-             manos: Optional[dict] = None):
+             manos: Optional[dict] = None, sin_escala=()):
         """Lleva los joints indicados (índice MuJoCo) a su ángulo con perfil coseno.
 
         Los joints no indicados conservan su consigna. Los índices de piernas
@@ -494,7 +499,7 @@ class ConectorSonic:
                 i = MJ_A_UB17.get(mj)
                 if i is None:
                     continue
-                if self.escala != 1.0:
+                if self.escala != 1.0 and mj not in sin_escala:
                     base = POSTURA_BASE_MJ[mj]
                     valor = base + self.escala * (valor - base)
                 lo, hi = LIMITES_MJ[mj]
