@@ -212,14 +212,14 @@ SEÑAS_SONIC = {
         ({22: -0.20, 23: -1.26, 24: 0.54, 25: -0.47, 26: -1.92, 27: 0.01, 28: 0.21}, 1.4),
     ],
     # índice sobre los labios, quieto
-    "Silencio": [({22: -0.36, 23: -0.13, 24: 1.05, 25: -0.64, 26: 0.32, 27: -0.93, 28: -0.11}, 1.1),
+    "Silencio": [({22: -0.36, 23: -0.13, 24: 1.05, 25: -0.64, 26: -0.7854, 27: -0.93, 28: -0.11}, 1.1),
                  ({}, 1.0)],
 }
 
 
-# Joints que NO se reducen con `escala` (amplitud del modo real) en una seña: el giro de la muñeca de «Mal»
-# necesita todo su recorrido (el wrist roll llega a ±1.97 rad) y no choca con nada.
-SIN_ESCALA = {"Mal": {26}}
+# Joints que NO se reducen con `escala` (amplitud del modo real) en una seña: el giro de la muñeca (wrist roll)
+# de «Mal» y «Silencio» debe hacerse completo (el joint llega a ±1.97 rad) y no choca con nada.
+SIN_ESCALA = {"Mal": {26}, "Silencio": {26}}
 
 
 def comando_a_objetivos_mj(cmd: ComandoArticular) -> Dict[int, float]:
