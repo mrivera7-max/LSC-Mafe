@@ -23,7 +23,7 @@ log = logging.getLogger("robot.verificacion")
 OK, AVISO, ERROR, EN_CURSO, PENDIENTE, OMITIDO = "ok", "aviso", "error", "en_curso", "pendiente", "omitido"
 PATRONES_PROCESOS = ("run_sim_loop.py", "g1_deploy_onnx_ref")
 # Comprobaciones que solo afectan al robot real; el resto es lo que necesita la simulación en la PC.
-CLAVES_ROBOT = ("red", "ssh", "interfaz", "camara_robot", "mic_robot")
+CLAVES_ROBOT = ("red", "ssh", "interfaz", "camara_robot", "mic_robot", "manos")
 
 
 @dataclass
@@ -55,6 +55,7 @@ class Verificador:
             ("procesos", "Procesos antiguos", self._procesos),
             ("camara_robot", "Cámara del robot (servidor)", self._camara_robot),
             ("mic_robot", "Micrófono del robot (USB en el PC2)", self._mic_robot),
+            ("manos", "Manos Inspire (Modbus)", self._manos),
             ("camara_pc", "Cámara de la PC", self._camara_pc),
             ("internet", "Internet (reconocimiento de voz)", self._internet),
             ("mic_pc", "Micrófono de la PC", self._mic_pc),
@@ -195,6 +196,25 @@ class Verificador:
             return Resultado("", "", AVISO, str(e).splitlines()[0],
                              "Conecta el receptor del micrófono (Hollyland) a un USB del PC2, o usa el micrófono de la PC.")
         return Resultado("", "", OK, f"«{nombre}» conectado al robot; se usará al conectar el robot real")
+
+    def _manos(self) -> Resultado:
+        """Las manos Inspire tienen IP propia y hablan Modbus TCP: se comprueba que respondan."""
+        import socket
+        from robot.inspire_modbus import IP_DER, IP_IZQ, PUERTO
+        estado = {}
+        for lado, ip in (("derecha", IP_DER), ("izquierda", IP_IZQ)):
+            try:
+                with socket.create_connection((ip, PUERTO), timeout=1.5):
+                    estado[lado] = (ip, True)
+            except OSError as e:
+                estado[lado] = (ip, str(e))
+        ok = [l for l, (_, r) in estado.items() if r is True]
+        if len(ok) == 2:
+            return Resultado("", "", OK, f"Derecha {IP_DER} e izquierda {IP_IZQ} responden")
+        faltan = "; ".join(f"{l} ({ip}:{PUERTO}: {r})" for l, (ip, r) in estado.items() if r is not True)
+        sol = ("Solo afecta al robot real. Revisa que las manos estén encendidas y con el cable de red, "
+               "y que tu PC tenga IP 192.168.123.x. Prueba: python -m robot.probar_manos_inspire --solo der")
+        return Resultado("", "", AVISO, ("Sin respuesta: " if not ok else f"Responde solo la {ok[0]}; sin respuesta: ") + faltan, sol)
 
     def _camara_pc(self) -> Resultado:
         """Detecta las cámaras conectadas probando que entreguen imagen (no solo por número o nombre)."""

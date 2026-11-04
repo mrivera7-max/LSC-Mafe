@@ -257,10 +257,10 @@ class ServidorCamaraG1:
                             continue
                         realsense_probada = True
                         paso(f"Probando la RealSense «{nombre}»…")
-                        return self._preparar_realsense(listado, paso, espera_s=min(espera_s, 45.0))
+                        return self._preparar_realsense(listado, paso, espera_s=max(espera_s, 80.0))
                     nodos = [int(v.replace("/dev/video", "")) for v in videos]
                     paso(f"Probando «{nombre}» (nodos {nodos})…")
-                    return self._lanzar_ligero(nodos, FORMA, paso, espera_s=min(espera_s, 45.0))
+                    return self._lanzar_ligero(nodos, FORMA, paso, espera_s=max(espera_s, 80.0))
                 except ErrorCamaraG1 as e:
                     fallos.append(f"{nombre}: {str(e).splitlines()[0]}")
                     paso(f"«{nombre}» no entrega imagen; pruebo la siguiente.")
@@ -355,6 +355,15 @@ class ServidorCamaraG1:
                     fuente = next((l for l in self._ssh(f"cat {LOG_LIGERO}").splitlines() if "FUENTE" in l), "")
                 except ErrorCamaraG1:
                     pass
+                paso("Comprobando que lleguen imágenes…")
+                if not self._llega_imagen():
+                    cola = ""
+                    try:
+                        cola = self._ssh(f"tail -n 15 {LOG_LIGERO}")
+                    except ErrorCamaraG1:
+                        pass
+                    raise ErrorCamaraG1(f"El servidor del robot abrió el puerto {self.puerto} pero no llegan imágenes.\n"
+                                        f"Log del robot ({LOG_LIGERO}):\n{cola.strip()}")
                 paso(f"Cámara del robot lista. {fuente.strip()}")
                 return self.puerto
             time.sleep(1.0)
@@ -365,6 +374,22 @@ class ServidorCamaraG1:
             pass
         raise ErrorCamaraG1(f"La cámara no entregó imagen (nodos probados: {nodos}).\n"
                             f"Log del robot ({LOG_LIGERO}):\n{cola.strip()}")
+
+    def _llega_imagen(self, espera: float = 8.0) -> bool:
+        """True si por el puerto ZMQ del robot llega al menos un fotograma a esta PC."""
+        try:
+            import zmq
+        except ImportError:
+            return True                       # sin zmq local no se puede comprobar; lo hará la cámara al abrir
+        ctx = zmq.Context.instance()
+        sock = ctx.socket(zmq.SUB)
+        sock.setsockopt(zmq.SUBSCRIBE, b"")
+        sock.setsockopt(zmq.LINGER, 0)
+        sock.connect(f"tcp://{self.host}:{self.puerto}")
+        try:
+            return bool(sock.poll(int(espera * 1000)))
+        finally:
+            sock.close()
 
     def detener(self):
         """Apaga teleimager-server en el robot (libera la cámara)."""

@@ -44,6 +44,7 @@ except ImportError:  # se avisa al llamar a conectar()
 
 from robot.conector_g1 import POSTURAS_G1, ComandoArticular
 from robot.mano_inspire import SalidaInspireDDS, a_dex3, cargar_formas
+from robot.inspire_modbus import SalidaInspireModbus
 
 log = logging.getLogger("lsc_bridge.conector_sonic")
 
@@ -367,13 +368,22 @@ class ConectorSonic:
             return False
 
         if self.manos in ("inspire", "ambas"):
-            self.salida_inspire = SalidaInspireDDS(self.interfaz_dds)
+            # Modbus TCP directo a las manos (192.168.123.211/.210): no necesita DDS ni el servicio del PC2.
+            # Si las manos no responden por Modbus se intenta el DDS de Unitree (rt/inspire_hand/ctrl/{l,r}).
+            self.salida_inspire = SalidaInspireModbus(self.interfaz_dds)
             if self.salida_inspire.abrir():
-                log.info("Manos Inspire: publicando en rt/inspire_hand/ctrl/{l,r}")
+                log.info(f"Manos Inspire por Modbus TCP: {self.salida_inspire.estado()}")
+                if self.salida_inspire.error:
+                    self.aviso_manos = self.salida_inspire.error
             else:
-                self.aviso_manos = self.salida_inspire.error
-                log.warning(self.aviso_manos)
-                self.salida_inspire = None
+                motivo_modbus = self.salida_inspire.error
+                self.salida_inspire = SalidaInspireDDS(self.interfaz_dds)
+                if self.salida_inspire.abrir():
+                    log.info("Manos Inspire: publicando en rt/inspire_hand/ctrl/{l,r}")
+                else:
+                    self.aviso_manos = f"{motivo_modbus} | DDS: {self.salida_inspire.error}"
+                    log.warning(self.aviso_manos)
+                    self.salida_inspire = None
 
         time.sleep(0.5)  # da tiempo a que el deploy (subscriptor) se enganche
         self.error = None
