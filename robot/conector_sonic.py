@@ -141,7 +141,7 @@ _PUNO = (0.0, 0.0, 0.0, 0.0, 0.2, 0.5)
 _PUNO_SUAVE = (0.3, 0.3, 0.35, 0.4, 0.5, 0.5)
 
 # Sí: puño a la altura del hombro, antebrazo vertical, cabeceo de muñeca
-_SI = {22: -0.03, 23: -0.27, 24: -0.17, 25: -0.27, 26: 1.5708, 27: -0.92, 28: 0.11}   # muñeca (26) girada 90°
+_SI = {22: -0.03, 23: -0.27, 24: -0.17, 25: -0.27, 26: -1.5708, 27: -0.92, 28: 0.11}   # muñeca (26) a -90° desde su posición inicial (0)
 
 # Por favor: puño sobre el pecho dibujando un círculo de 4,5 cm de radio (6 puntos, sentido horario)
 _POR_FAVOR = [
