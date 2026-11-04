@@ -52,8 +52,8 @@ class Configuracion:
         # la app (--sonic-escala, --sonic-tiempo, --sonic-vel-max, --sonic-confianza, --manos, --mic, --iface,
         # --mic-indice) tienen prioridad. Amplitud, tiempo y velocidad solo rigen con el robot real.
         self.sonic_escala = 0.6          # fracción de la amplitud de cada seña (0-1)
-        self.sonic_tiempo = 1.1          # factor de duración de cada tramo (>= 1; mayor = más lento)
-        self.sonic_vel_max = 2.1         # tope de velocidad articular (rad/s)
+        self.sonic_tiempo = 1.0          # factor de duración de cada tramo (>= 1; mayor = más lento)
+        self.sonic_vel_max = 3.0         # tope de velocidad articular (rad/s)
         self.sonic_confianza = 0.8       # confianza mínima de la seña detectada por cámara para que el G1 la ejecute
         self.sonic_manos = "auto"        # auto | dex3 | inspire | ambas | ninguna
         self.sonic_iface = ""            # interfaz de red del cable al robot para el deploy ("" = enp131s0)
