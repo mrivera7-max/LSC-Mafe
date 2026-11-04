@@ -167,13 +167,14 @@ def _manos2(f) -> dict:
     return {"der": f, "izq": f}
 
 
-def _no_cabeceo(n: int = 3, amp: float = 0.28, dur: float = 0.3):
-    """«No»: el G1 no tiene cuello; se imita el movimiento de cabeza con la cintura (yaw) y el dedo."""
-    base = {22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -0.44, 27: -1.13, 28: 0.01}
+def _no_cabeceo(n: int = 3, dur: float = 0.35, amp_muneca: float = 0.35):
+    """«No»: el G1 no tiene cuello. La cintura queda quieta; el wrist roll (26) fijo en -90° y el
+    wrist pitch (27) se mueve de lado a lado durante la seña."""
+    base = {22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -1.5708, 27: -1.13, 28: 0.01}
     kf = []
     for _ in range(n):
-        kf.append(({**base, 12: amp, 26: -0.44 + 0.3}, dur))
-        kf.append(({**base, 12: -amp, 26: -0.44 - 0.3}, dur))
+        kf.append(({**base, 27: base[27] + amp_muneca}, dur))
+        kf.append(({**base, 27: base[27] - amp_muneca}, dur))
     return base, kf
 
 
@@ -192,7 +193,7 @@ SEÑAS_SONIC = {
     # «Sí»: puño que cabecea; con el wrist roll en -90° el wrist yaw (joint 28) mueve la mano de arriba a abajo
     "Si": [(_SI, 0.9, {"der": _PUNO})] + _osc(28, _SI[28], 0.45, 3, 0.30) + [({28: _SI[28]}, 0.3)],
     # «No»: la seña real es un giro de cabeza; el G1 no tiene cuello → giro de cintura + índice que se mueve
-    "No": [(_NO_BASE, 1.0, {"der": (0.3, 0.3, 0.4, 1.0, 0.25, 0.55)})] + _NO_KF + [({**_NO_BASE, 12: 0.0}, 0.4)],
+    "No": [(_NO_BASE, 1.0, {"der": (0.3, 0.3, 0.4, 1.0, 0.25, 0.55)})] + _NO_KF + [(dict(_NO_BASE), 0.4)],
     "BuenosDias": [
         (_dos(_BD_A), 1.0, _manos2(_ABIERTA)),
         (_dos(_BD_B), 0.9, _manos2(_PUNO_SUAVE)),
@@ -219,7 +220,7 @@ SEÑAS_SONIC = {
 
 # Joints que NO se reducen con `escala` (amplitud del modo real) en una seña: el giro de la muñeca (wrist roll)
 # de «Mal» y «Silencio» debe hacerse completo (el joint llega a ±1.97 rad) y no choca con nada.
-SIN_ESCALA = {"Mal": {26}, "Silencio": {26}}
+SIN_ESCALA = {"Mal": {26}, "Silencio": {26}, "No": {26, 27}}
 
 
 def comando_a_objetivos_mj(cmd: ComandoArticular) -> Dict[int, float]:
