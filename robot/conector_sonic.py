@@ -167,10 +167,10 @@ def _manos2(f) -> dict:
     return {"der": f, "izq": f}
 
 
-def _no_cabeceo(n: int = 3, dur: float = 0.35, amp_muneca: float = 0.35):
+def _no_cabeceo(n: int = 3, dur: float = 0.45, amp_muneca: float = 0.50):
     """«No»: el G1 no tiene cuello. La cintura queda quieta; el wrist roll (26) fijo en -90° y el
     wrist pitch (27) se mueve de lado a lado durante la seña."""
-    base = {22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -1.5708, 27: -1.13, 28: 0.01}
+    base = {22: -0.71, 23: 0.05, 24: -0.73, 25: 0.07, 26: -1.5708, 27: -1.05, 28: 0.01}
     kf = []
     for _ in range(n):
         kf.append(({**base, 27: base[27] + amp_muneca}, dur))
