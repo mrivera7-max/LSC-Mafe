@@ -53,8 +53,10 @@ class ReconocedorVoz:
             from voz_a_sena.microfono_g1 import MicrofonoG1
             self._mic_g1 = MicrofonoG1(iface_ip=iface_ip)
         elif fuente == "robot":
-            from voz_a_sena.microfono_g1 import IP_ROBOT_PC2, MicrofonoG1Remoto
-            self._mic_g1 = MicrofonoG1Remoto(host_robot or IP_ROBOT_PC2)
+            # El robot envía el audio por UDP a esta PC (puerto 5601), igual que mic_stream_g1.py del repo tres-colores.
+            from voz_a_sena.microfono_g1 import MicrofonoG1
+            from robot.servidor_audio_g1 import PUERTO_UDP_AUDIO
+            self._mic_g1 = MicrofonoG1(grupo=None, puerto=PUERTO_UDP_AUDIO)
         self.idioma = idioma
         self.timeout_segundos = timeout_segundos
         self.limite_frase_segundos = limite_frase_segundos
@@ -69,6 +71,21 @@ class ReconocedorVoz:
             self._recognizer = sr.Recognizer()
             self._recognizer.energy_threshold = 300
             self._recognizer.dynamic_energy_threshold = True
+            self._recognizer.operation_timeout = 15       # recognize_google no debe quedarse esperando sin fin
+
+    @staticmethod
+    def _normalizar(pcm: bytes, objetivo: int = 12000, ganancia_max: float = 30.0) -> bytes:
+        """Sube el volumen de una frase débil (micrófonos inalámbricos con poca ganancia) hasta un pico razonable."""
+        try:
+            import numpy as _np
+            x = _np.frombuffer(pcm, dtype="<i2").astype(_np.float64)
+            pico = float(_np.max(_np.abs(x))) if x.size else 0.0
+            if 0 < pico < objetivo:
+                g = min(objetivo / pico, ganancia_max)
+                return _np.clip(x * g, -32768, 32767).astype("<i2").tobytes()
+        except Exception as e:  # noqa: BLE001
+            log.debug(f"No se pudo normalizar el volumen: {e}")
+        return pcm
 
     @staticmethod
     def _guardar_depuracion(pcm: bytes, ruta: str = "/tmp/lsc_ultima_frase_g1.wav"):
@@ -133,6 +150,7 @@ class ReconocedorVoz:
         if fuente in ("g1", "robot"):
             pcm = self._mic_g1.capturar_frase(self.timeout_segundos, self.limite_frase_segundos)
             if pcm is not None:
+                pcm = self._normalizar(pcm)
                 audio = sr.AudioData(pcm, 16000, 2)
                 self._guardar_depuracion(pcm)
             elif self.fallback_pc and "No llegan paquetes" in (self._mic_g1.error or ""):

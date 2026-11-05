@@ -197,7 +197,8 @@ class Verificador:
             _, nombre = ServidorAudioG1(self.host, self.usuario, self.clave).detectar()
         except ErrorCamaraG1 as e:
             return Resultado("", "", AVISO, str(e).splitlines()[0],
-                             "Conecta el receptor del micrófono (Hollyland) a un USB del PC2, o usa el micrófono de la PC.")
+                             "Conecta el receptor del micrófono a un USB del PC2 (o usa el de la PC). Si ya está conectado: "
+                             "python -m robot.diagnostico_audio_g1")
         return Resultado("", "", OK, f"«{nombre}» conectado al robot; se usará al conectar el robot real")
 
     def _manos(self) -> Resultado:

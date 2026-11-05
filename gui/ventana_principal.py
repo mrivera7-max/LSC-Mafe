@@ -216,7 +216,7 @@ class VentanaPrincipal:
 
         self._btn_cam_pc = tk.Button(
             frame_btns, text="📷  Cámara PC",
-            bg="#0ea5e9", fg="white", relief="flat",
+            bg=c["azul"], fg="white", relief="flat",
             font=("Segoe UI", 9, "bold"), padx=12, pady=6,
             cursor="hand2", command=lambda: self._activar_camara("usb"),
         )
@@ -224,7 +224,7 @@ class VentanaPrincipal:
 
         self._btn_cam_g1 = tk.Button(
             frame_btns, text="🤖  Cámara G1",
-            bg=c["verde"], fg="#052e16", relief="flat",
+            bg=c["azul"], fg="white", relief="flat",
             font=("Segoe UI", 9, "bold"), padx=12, pady=6,
             cursor="hand2", command=lambda: self._activar_camara("g1"),
         )
@@ -234,7 +234,7 @@ class VentanaPrincipal:
         # El G1 de SONIC (MuJoCo / real) se conecta desde la pestaña Voz / Texto → Seña.
         self._btn_robot = tk.Button(
             frame_btns, text="⚡  Conectar G1",
-            bg=c["verde"], fg="#052e16", relief="flat",
+            bg=c["azul"], fg="white", relief="flat",
             font=("Segoe UI", 9, "bold"), padx=12, pady=6,
             cursor="hand2", command=self._toggle_robot,
         )
@@ -306,7 +306,7 @@ class VentanaPrincipal:
         fila_estado.pack(fill="x", pady=(4, 0))
 
         self._dot_robot = tk.Label(fila_estado, text="●", bg=c["panel"],
-                                    fg=c["rojo"], font=("Segoe UI", 12))
+                                    fg=c["azul"], font=("Segoe UI", 12))
         self._dot_robot.pack(side="left")
         self._lbl_estado_robot = tk.Label(fila_estado, text="Desconectado",
                                            bg=c["panel"], fg=c["texto"],
@@ -361,14 +361,14 @@ class VentanaPrincipal:
     def _construir_barra_estado(self):
         c = self._colores
         self._lbl_status_cam = tk.Label(self._barra_estado, text="● Cámara: inactiva",
-                                         bg=c["acento"], fg=c["rojo"],
+                                         bg=c["acento"], fg=c["azul"],
                                          font=("Segoe UI", 8))
         self._lbl_status_cam.pack(side="left", padx=12, pady=4)
 
         tk.Label(self._barra_estado, text="|", bg=c["acento"], fg=c["texto_sec"]).pack(side="left")
 
         self._lbl_status_robot = tk.Label(self._barra_estado, text="● Robot: desconectado",
-                                           bg=c["acento"], fg=c["rojo"],
+                                           bg=c["acento"], fg=c["azul"],
                                            font=("Segoe UI", 8))
         self._lbl_status_robot.pack(side="left", padx=12)
 
@@ -383,7 +383,7 @@ class VentanaPrincipal:
 
         # Réplica de la seña detectada en el simulador (MuJoCo) o el robot real de SONIC
         self._lbl_status_sim = tk.Label(self._barra_estado, text="● Simulador: sin enlazar",
-                                         bg=c["acento"], fg=c["rojo"], font=("Segoe UI", 8))
+                                         bg=c["acento"], fg=c["azul"], font=("Segoe UI", 8))
         self._lbl_status_sim.pack(side="left", padx=(12, 4))
         self._var_replicar = tk.BooleanVar(master=self._barra_estado, value=True)
         tk.Checkbutton(self._barra_estado, text="Replicar la seña detectada", variable=self._var_replicar,
@@ -401,7 +401,7 @@ class VentanaPrincipal:
     def _refrescar_estado_sim(self):
         """Cada segundo muestra si hay un simulador / robot de SONIC enlazado para replicar las señas."""
         try:
-            texto, color = self.estado_destino() if self.estado_destino else ("Simulador: sin enlazar", self._colores["rojo"])
+            texto, color = self.estado_destino() if self.estado_destino else ("Simulador: sin enlazar", self._colores["azul"])
             self._lbl_status_sim.configure(text=f"● {texto}", fg=color)
             self._raiz.after(1000, self._refrescar_estado_sim)
         except tk.TclError:
@@ -603,7 +603,7 @@ class VentanaPrincipal:
         """Callback cuando cambia el estado del robot."""
         from robot.conector_g1 import EstadoRobot
         textos = {
-            EstadoRobot.DESCONECTADO: ("Desconectado", self._colores["rojo"]),
+            EstadoRobot.DESCONECTADO: ("Desconectado", self._colores["azul"]),
             EstadoRobot.CONECTANDO:   ("Conectando...", self._colores["amarillo"]),
             EstadoRobot.CONECTADO:    ("Conectado",     self._colores["verde"]),
             EstadoRobot.EJECUTANDO:   ("Ejecutando",    self._colores["azul"]),
@@ -623,8 +623,8 @@ class VentanaPrincipal:
 
     def _estilo_botones_camara(self):
         c = self._colores
-        nombres = {"usb": ("📷  Cámara PC", self._btn_cam_pc, "#0ea5e9", "white"),
-                   "g1": ("🤖  Cámara G1", self._btn_cam_g1, c["verde"], "#052e16")}
+        nombres = {"usb": ("📷  Cámara PC", self._btn_cam_pc, c["azul"], "white"),
+                   "g1": ("🤖  Cámara G1", self._btn_cam_g1, c["azul"], "white")}
         for fuente, (texto, boton, bg, fg) in nombres.items():
             if self._fuente_cam == fuente:
                 boton.configure(text=f"■  Detener {texto.split('  ')[1]}", bg=c["rojo"], fg="white")
@@ -641,7 +641,7 @@ class VentanaPrincipal:
         if self._fuente_cam is not None or (self._reconocedor and self._reconocedor.activo):
             self._detener_camara()
             self._fuente_cam = None
-            self._lbl_status_cam.configure(text="● Cámara: inactiva", fg=c["rojo"])
+            self._lbl_status_cam.configure(text="● Cámara: inactiva", fg=c["azul"])
             self._lbl_video.configure(image="", text="Cámara detenida", fg="#555")
         if mismo:
             self._estilo_botones_camara()
@@ -706,7 +706,7 @@ class VentanaPrincipal:
             self._fuente_cam = None
             self._lbl_video.configure(image="", text="Cámara detenida", fg="#555")
             self._estilo_botones_camara()
-            self._lbl_status_cam.configure(text="● Cámara: inactiva", fg=c["rojo"])
+            self._lbl_status_cam.configure(text="● Cámara: inactiva", fg=c["azul"])
             return
         self._fuente_cam = fuente
         self._estilo_botones_camara()
@@ -715,7 +715,7 @@ class VentanaPrincipal:
     def _toggle_robot(self):
         if self._robot and self._robot.conectado:
             threading.Thread(target=self._robot.desconectar, daemon=True).start()
-            self._btn_robot.configure(text="⚡  Conectar G1", bg=self._colores["verde"])
+            self._btn_robot.configure(text="⚡  Conectar G1", bg=self._colores["azul"])
         else:
             threading.Thread(target=self._robot.conectar, daemon=True).start()
             self._btn_robot.configure(text="✕  Desconectar G1", bg=self._colores["rojo"])

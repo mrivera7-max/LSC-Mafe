@@ -185,12 +185,20 @@ class MicrofonoG1:
         t_ini = time.monotonic()
         t_voz = None
         recibio = False
+        rms_max = 0.0
+        self.nivel = {}
 
         while True:
             ahora = time.monotonic()
             if not hablando and ahora - t_ini > timeout_espera:
-                self.error = ("Tiempo de espera agotado, no se detectó voz" if recibio else
-                              f"No llegan paquetes de audio a {self.grupo or 'unicast'}:{self.puerto}")
+                if recibio:
+                    self.error = ("Tiempo de espera agotado, no se detectó voz "
+                                  f"(el audio llega: ruido {self.nivel.get('ruido', 0):.0f}, máximo {rms_max:.0f}, "
+                                  f"umbral {umbral or 0:.0f}"
+                                  + ("; el volumen es muy bajo: sube la ganancia del micrófono o acércalo)"
+                                     if rms_max < 150 else ")"))
+                else:
+                    self.error = f"No llegan paquetes de audio a {self.grupo or 'unicast'}:{self.puerto}"
                 return None
             if hablando and ahora - t_voz > limite_frase:
                 break
@@ -207,12 +215,14 @@ class MicrofonoG1:
                 f = buf[i:i + trama]
                 x = np.frombuffer(f, dtype="<i2").astype(np.float64)
                 rms = float(np.sqrt(np.mean(x * x)))
+                rms_max = max(rms_max, rms)
                 if umbral is None:
                     ruido.append(rms)
                     if len(ruido) * TRAMA_MS >= 500:
                         mediana = float(np.median(ruido))
-                        umbral = max(250.0, 2.5 * mediana)
-                        umbral_fin = max(150.0, 1.4 * mediana)
+                        umbral = max(120.0, 2.5 * mediana)
+                        umbral_fin = max(80.0, 1.4 * mediana)
+                        self.nivel["ruido"] = mediana
                         log.info(f"Micrófono G1: ruido {mediana:.0f} -> inicio {umbral:.0f}, fin {umbral_fin:.0f}")
                     previas = (previas + [f])[-pre_max:]
                     continue

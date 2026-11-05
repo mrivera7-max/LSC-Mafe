@@ -57,10 +57,10 @@ class PanelConexion(tk.Frame):
                                       font=("Segoe UI", 10, "bold"), padx=12, pady=6, cursor="hand2",
                                       command=self.verificar)
         self._btn_repetir.pack(side="left")
-        self._btn_ssh = tk.Button(barra, text="🔑 Configurar acceso SSH", bg="#f59e0b", fg="#1c1917", relief="flat",
+        self._btn_ssh = tk.Button(barra, text="🔑 Configurar acceso SSH", bg="#22c55e", fg="#052e16", relief="flat",
                                   font=("Segoe UI", 10, "bold"), padx=12, pady=6, cursor="hand2",
                                   command=self._configurar_ssh)
-        self._btn_proc = tk.Button(barra, text="🧹 Cerrar procesos antiguos", bg="#475569", fg="white", relief="flat",
+        self._btn_proc = tk.Button(barra, text="🧹 Cerrar procesos antiguos", bg="#dc2626", fg="white", relief="flat",
                                    font=("Segoe UI", 10, "bold"), padx=12, pady=6, cursor="hand2",
                                    command=self._cerrar_procesos)
         self._lbl_aviso = tk.Label(self, text="", bg=FONDO, fg=TENUE, font=("Segoe UI", 9), anchor="w")

@@ -56,18 +56,22 @@ class VentanaVozASena:
         self.mic = mic
         self._mic_iface_ip = mic_iface_ip
         self._robot_ssh = (robot_host, robot_usuario, robot_clave)
-        self._fuente_voz = "pc"                       # "pc" | "g1" | "robot": lo que usa hoy el botón Hablar
+        self._escuchando_fuente = None                # "pc" | "robot" mientras se escucha
+        self._id_escucha = 0                          # identifica la escucha vigente (para cancelar/vencer)
+        self._mic_robot_estado = "sin probar"         # "sin probar" | "preparando" | "listo" | "error"
+        self._rec_robot = None                        # reconocedor del micrófono del robot (cuando está listo)
         self._servidor_audio = None
         self.lanzador = LanzadorSonic(gr00t_dir, interfaz, mujoco_pos, mujoco_tam, integrado=integrado)
         self.consola = None
         self._mostrar_pestana_consola = lambda: None
         self._lanzado = {False: False, True: False}   # ¿ya se abrió la sim / el deploy real?
         self._esperando = False
-        self.servidor = ServidorVozASena(
-            fuente_mic="g1" if mic == "g1" else "pc",
-            mic_fallback_pc=False, mic_iface_ip=mic_iface_ip)
-        if mic == "g1":
-            self._fuente_voz = "g1"
+        self.servidor = ServidorVozASena(fuente_mic="pc", mic_fallback_pc=False, mic_iface_ip=mic_iface_ip)
+        self._rec_pc = ReconocedorVoz(fuente="pc")
+        try:
+            self._mic_pc_ok = bool(self._rec_pc.listar_microfonos())
+        except Exception:  # noqa: BLE001
+            self._mic_pc_ok = False
         self.robot = None  # ConectorG1 compartido; lo asigna app_unificada.py
         self.abrir_datos = lambda nombre=None: None  # la asigna app_unificada.py (lleva a la pestaña Datos)
         self.sonic = None  # ConectorSonic (MuJoCo, 29 GDL); se crea al enlazar con la simulación o el robot real
@@ -112,53 +116,58 @@ class VentanaVozASena:
                           "«🤖 Conectar robot real» para mover el G1 físico (docs/g1_real.md).")
 
     def _ajustar_mic(self):
-        """Elige el micrófono de voz.
+        """Con el robot real y --mic robot/auto, deja listo el micrófono del robot al conectar.
 
-        - mic "pc": el de la PC.  - mic "g1": el del robot por multicast (sin respaldo).
-        - mic "robot": el micrófono USB conectado al PC2 del robot (Hollyland…), con respaldo a la PC.
-        - mic "auto": con el robot real, el micrófono USB del PC2 (si no se detecta, el de la PC);
-          en simulación, el de la PC.
-        """
-        usar_robot = self.mic == "robot" or (self.mic == "auto" and self.modo_real)
-        if not usar_robot:
-            if self.mic == "auto":
-                self._poner_fuente_voz("pc")
+        Los dos micrófonos son independientes: el botón «Hablar (micrófono de la PC)» usa siempre la PC y
+        «Hablar (micrófono del robot)» usa siempre el del robot, sin respaldo entre ellos."""
+        if self.mic in ("robot", "auto") and self.modo_real and self._mic_robot_estado != "listo":
+            self._agregar_log("Buscando el micrófono conectado al robot (SSH)…")
+            self._preparar_mic_robot_async()
+
+    def _preparar_mic_robot_async(self, escuchar_despues: bool = False):
+        if self._mic_robot_estado == "preparando":
             return
-        self._agregar_log("Buscando el micrófono conectado al robot (SSH)…")
-        threading.Thread(target=self._preparar_mic_robot, daemon=True).start()
+        self._poner_estado_mic_robot("preparando")
+        threading.Thread(target=self._preparar_mic_robot, args=(escuchar_despues,), daemon=True).start()
 
-    def _poner_fuente_voz(self, fuente: str):
-        self._fuente_voz = fuente
-        if fuente == "robot":
-            host = self._robot_ssh[0]
-            self.servidor.reconocedor_voz = ReconocedorVoz(fuente="robot", fallback_pc=True, host_robot=host)
-        elif fuente == "g1":
-            self.servidor.reconocedor_voz = ReconocedorVoz(
-                fuente="g1", fallback_pc=True, iface_ip=self._mic_iface_ip)
-        else:
-            self.servidor.reconocedor_voz = ReconocedorVoz(fuente="pc")
-        self._boton_voz.configure(text=self._texto_boton_voz())
+    def _poner_estado_mic_robot(self, estado: str, detalle: str = ""):
+        self._mic_robot_estado = estado
+        texto, color = {
+            "sin probar": ("Micrófono del robot: se detecta al pulsar el botón", "#60a5fa"),
+            "preparando": ("Micrófono del robot: buscándolo en el PC2…", "#60a5fa"),
+            "listo": ("Micrófono del robot: listo" + (f" ({detalle})" if detalle else ""), "#22c55e"),
+            "error": ("Micrófono del robot: " + (detalle or "no disponible"), "#ef4444"),
+        }[estado]
+        if hasattr(self, "_lbl_estado_mic_robot"):
+            self._lbl_estado_mic_robot.configure(text=texto, fg=color)
+            self._colorear_botones_voz()
 
-    def _preparar_mic_robot(self):
-        """Detecta el micrófono del PC2, arranca su servidor de audio y pasa la voz a esa fuente."""
-        from robot.servidor_audio_g1 import ServidorAudioG1
+    def _preparar_mic_robot(self, escuchar_despues: bool = False):
+        """Detecta el micrófono del PC2, arranca su servidor de audio y deja listo su reconocedor."""
         host, usuario, clave = self._robot_ssh
-        srv = ServidorAudioG1(host, usuario, clave)
-        self._servidor_audio = srv
-
-        def avisar(msg):
-            self._raiz.after(0, self._agregar_log, f"Micrófono del robot: {msg}")
-
         try:
-            srv.preparar(avisar)
+            if self.mic == "g1":                       # modo antiguo: audio del robot por multicast
+                self._rec_robot = ReconocedorVoz(fuente="g1", fallback_pc=False, iface_ip=self._mic_iface_ip)
+                detalle = "multicast"
+            else:
+                from robot.servidor_audio_g1 import ServidorAudioG1
+                srv = ServidorAudioG1(host, usuario, clave)
+                self._servidor_audio = srv
+
+                def avisar(msg):
+                    self._raiz.after(0, self._agregar_log, f"Micrófono del robot: {msg}")
+                srv.preparar(avisar)
+                self._rec_robot = ReconocedorVoz(fuente="robot", fallback_pc=False, host_robot=host)
+                detalle = "USB del PC2"
         except Exception as e:  # noqa: BLE001
-            self._raiz.after(0, self._agregar_log,
-                             f"[AVISO] Micrófono del robot no disponible ({str(e).splitlines()[0]}). "
-                             "Se usa el micrófono de la PC.")
-            self._raiz.after(0, self._poner_fuente_voz, "pc")
+            msg = str(e).splitlines()[0] if str(e) else type(e).__name__
+            self._raiz.after(0, self._poner_estado_mic_robot, "error", msg)
+            self._raiz.after(0, self._agregar_log, f"[AVISO] Micrófono del robot no disponible: {msg}")
             return
-        self._raiz.after(0, self._poner_fuente_voz, "robot")
-        self._raiz.after(0, self._agregar_log, "Micrófono de voz: el conectado al robot.")
+        self._raiz.after(0, self._poner_estado_mic_robot, "listo", detalle)
+        self._raiz.after(0, self._agregar_log, "Micrófono del robot listo.")
+        if escuchar_despues:
+            self._raiz.after(0, self._iniciar_escucha, "robot")
 
     def cerrar(self):
         """Cierra la conexión con MuJoCo sin destruir la raíz."""
@@ -178,12 +187,22 @@ class VentanaVozASena:
         """Rotula los botones según lo que ya está abierto y si hay conexión."""
         conectado = self._conectado() or self._conectando_sonic
         busy = conectado or self._esperando
-        self._boton_sim.configure(
-            text="▶ Enlazar simulación" if self._lanzado[False] else "🖥 Abrir simulación MuJoCo",
-            state="disabled" if busy else "normal")
-        self._boton_real.configure(
-            text="▶ Enlazar robot real" if self._lanzado[True] else "🤖 Conectar robot real",
-            state="disabled" if busy else "normal")
+        con = self._conectado()
+        # azul = sin conectar; verde = conectado y funcionando (rojo queda para detener)
+        if con and not self.modo_real:
+            self._boton_sim.configure(text="✔ Simulación MuJoCo conectada", bg="#22c55e", fg="#052e16",
+                                      disabledforeground="#052e16", state="disabled")
+        else:
+            self._boton_sim.configure(
+                text="▶ Enlazar simulación" if self._lanzado[False] else "🖥 Abrir simulación MuJoCo",
+                bg="#2563eb", fg="white", state="disabled" if busy else "normal")
+        if con and self.modo_real:
+            self._boton_real.configure(text="✔ Robot real conectado", bg="#22c55e", fg="#052e16",
+                                       disabledforeground="#052e16", state="disabled")
+        else:
+            self._boton_real.configure(
+                text="▶ Enlazar robot real" if self._lanzado[True] else "🤖 Conectar robot real",
+                bg="#2563eb", fg="white", state="disabled" if busy else "normal")
         self._boton_sonic.configure(state="normal" if self._conectado() else "disabled")
         self._boton_cerrar_sim.configure(
             state="normal" if (self._lanzado[False] or self._lanzado[True]) and not self._conectando_sonic
@@ -422,6 +441,7 @@ class VentanaVozASena:
         c_texto = "#e2e8f0"
         c_acento = "#2563eb"
         c_verde = "#22c55e"
+        c_azul = "#2563eb"
 
         cont = self._contenedor
 
@@ -434,7 +454,7 @@ class VentanaVozASena:
                  fg="#bfdbfe", font=("Segoe UI", 10)).pack(side="left", pady=14)
 
         self._boton_sonic = tk.Button(
-            encabezado, text="■ Desconectar", bg="white", fg=c_acento,
+            encabezado, text="■ Desconectar", bg="#dc2626", fg="white",
             relief="flat", font=("Segoe UI", 9, "bold"), padx=10,
             cursor="hand2", command=self._alternar_sonic, state="disabled",
         )
@@ -457,17 +477,17 @@ class VentanaVozASena:
         barra = tk.Frame(cont, bg=c_fondo)
         barra.pack(fill="x", padx=16, pady=(12, 0))
         self._boton_sim = tk.Button(
-            barra, text="🖥 Abrir simulación MuJoCo", bg="#0ea5e9", fg="white", relief="flat",
+            barra, text="🖥 Abrir simulación MuJoCo", bg=c_azul, fg="white", relief="flat",
             font=("Segoe UI", 10, "bold"), pady=8, cursor="hand2",
             command=lambda: self._pulsar(False))
         self._boton_sim.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self._boton_real = tk.Button(
-            barra, text="🤖 Conectar robot real", bg="#f59e0b", fg="#1c1917", relief="flat",
+            barra, text="🤖 Conectar robot real", bg=c_azul, fg="white", relief="flat",
             font=("Segoe UI", 10, "bold"), pady=8, cursor="hand2",
             command=lambda: self._pulsar(True))
         self._boton_real.pack(side="left", fill="x", expand=True, padx=(6, 6))
         self._boton_cerrar_sim = tk.Button(
-            barra, text="✖ Cerrar simulación", bg="#475569", fg="white", relief="flat",
+            barra, text="✖ Cerrar simulación", bg="#dc2626", fg="white", relief="flat",
             font=("Segoe UI", 10, "bold"), pady=8, cursor="hand2", state="disabled",
             command=self._cerrar_todo)
         self._boton_cerrar_sim.pack(side="left", padx=(0, 6))
@@ -507,13 +527,24 @@ class VentanaVozASena:
         tk.Label(panel_voz, text="O USA TU VOZ", bg=c_panel,
                  fg="#64748b", font=("Segoe UI", 9, "bold")).pack(anchor="w")
 
+        fila_voz = tk.Frame(panel_voz, bg=c_panel)
+        fila_voz.pack(fill="x", pady=(8, 0))
+        fila_voz.columnconfigure(0, weight=1, uniform="mic")
+        fila_voz.columnconfigure(1, weight=1, uniform="mic")
         self._boton_voz = tk.Button(
-            panel_voz, text=self._texto_boton_voz(),
-            bg=c_verde, fg="#052e16", relief="flat",
-            font=("Segoe UI", 11, "bold"), pady=10,
-            cursor="hand2", command=self._iniciar_escucha,
-        )
-        self._boton_voz.pack(fill="x", pady=(8, 0))
+            fila_voz, text=self._TEXTO_PC, bg=c_azul, fg="white", relief="flat",
+            font=("Segoe UI", 11, "bold"), pady=10, cursor="hand2",
+            command=lambda: self._iniciar_escucha("pc"))
+        self._boton_voz.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self._boton_voz_robot = tk.Button(
+            fila_voz, text=self._TEXTO_ROBOT, bg=c_azul, fg="white", relief="flat",
+            font=("Segoe UI", 11, "bold"), pady=10, cursor="hand2",
+            command=lambda: self._iniciar_escucha("robot"))
+        self._boton_voz_robot.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self._lbl_estado_mic_robot = tk.Label(panel_voz, text="", bg=c_panel, fg="#64748b",
+                                              font=("Segoe UI", 9), anchor="w", justify="left", wraplength=900)
+        self._lbl_estado_mic_robot.pack(fill="x", pady=(6, 0))
+        self._poner_estado_mic_robot(self._mic_robot_estado)
 
         # Resultado de la ultima traduccion
         panel_resultado = tk.Frame(cont, bg=c_panel, padx=20, pady=16)
@@ -568,29 +599,79 @@ class VentanaVozASena:
         resultado = self.servidor.procesar_texto(texto)
         self._raiz.after(0, self._mostrar_resultado, resultado)
 
-    def _nombre_mic(self) -> str:
-        return {"pc": "micrófono de la PC", "g1": "micrófono del G1 (multicast)",
-                "robot": "micrófono conectado al robot"}[self._fuente_voz]
+    _TEXTO_PC = "🎤  Hablar (micrófono de la PC)"
+    _TEXTO_ROBOT = "🤖  Hablar (micrófono del robot)"
 
-    def _texto_boton_voz(self) -> str:
-        return {"pc": "🎤  Hablar (micrófono de la PC)", "g1": "🎤  Hablar (micrófono del G1)",
-                "robot": "🎤  Hablar (micrófono del robot)"}[self._fuente_voz]
+    LIMITE_ESCUCHA_S = 30          # si el micrófono no responde en este tiempo, se libera el botón
 
-    def _iniciar_escucha(self):
+    def _iniciar_escucha(self, fuente: str = "pc"):
+        """fuente "pc": micrófono de esta PC.  "robot": micrófono conectado al robot (sin respaldo en la PC).
+
+        Mientras escucha, el botón está en rojo («Escuchando… pulsa para detener»): pulsarlo cancela."""
         if self._escuchando:
+            if fuente == self._escuchando_fuente:
+                self._cancelar_escucha("Escucha detenida.")
+            return
+        if fuente == "robot" and self._mic_robot_estado != "listo":
+            if self._mic_robot_estado == "preparando":
+                self._agregar_log("El micrófono del robot todavía se está preparando…")
+                return
+            self._agregar_log("Buscando el micrófono conectado al robot (SSH)…")
+            self._preparar_mic_robot_async(escuchar_despues=True)
             return
         self._escuchando = True
-        self._boton_voz.configure(text="🎤  Escuchando...", bg="#ef4444")
-        self._agregar_log(f"Escuchando... ({self._nombre_mic()})")
-        threading.Thread(target=self._procesar_voz, daemon=True).start()
+        self._escuchando_fuente = fuente
+        self._id_escucha += 1
+        id_ = self._id_escucha
+        boton = self._boton_voz_robot if fuente == "robot" else self._boton_voz
+        boton.configure(text="■  Escuchando… (pulsa para detener)", bg="#dc2626", fg="white")
+        self._agregar_log("Escuchando... (micrófono " + ("del robot" if fuente == "robot" else "de la PC") + ")")
+        threading.Thread(target=self._procesar_voz, args=(fuente, id_), daemon=True).start()
+        self._raiz.after(self.LIMITE_ESCUCHA_S * 1000, self._vencio_escucha, id_)
 
-    def _procesar_voz(self):
-        resultado = self.servidor.procesar_voz()
-        self._raiz.after(0, self._finalizar_escucha, resultado)
+    def _vencio_escucha(self, id_: int):
+        if self._escuchando and id_ == self._id_escucha:
+            self._cancelar_escucha(f"[ERROR] El micrófono no respondió en {self.LIMITE_ESCUCHA_S} s.")
 
-    def _finalizar_escucha(self, resultado: dict):
+    def _cancelar_escucha(self, mensaje: str):
+        self._id_escucha += 1                          # el resultado tardío de ese hilo se ignora
         self._escuchando = False
-        self._boton_voz.configure(text=self._texto_boton_voz(), bg="#22c55e")
+        self._escuchando_fuente = None
+        self._restaurar_botones_voz()
+        self._agregar_log(mensaje)
+
+    def _colorear_botones_voz(self):
+        """Azul = fuente sin verificar; verde = lista y funcionando; (rojo = escuchando, se pone al escuchar)."""
+        pc_ok = bool(getattr(self, "_mic_pc_ok", True))
+        robot_ok = self._mic_robot_estado == "listo"
+        for boton, texto, ok in ((self._boton_voz, self._TEXTO_PC, pc_ok),
+                                 (self._boton_voz_robot, self._TEXTO_ROBOT, robot_ok)):
+            if self._escuchando and ((boton is self._boton_voz_robot) == (self._escuchando_fuente == "robot")):
+                continue
+            boton.configure(text=texto, bg="#22c55e" if ok else "#2563eb", fg="#052e16" if ok else "white")
+
+    def _restaurar_botones_voz(self):
+        self._colorear_botones_voz()
+
+    def _procesar_voz(self, fuente: str = "pc", id_: int = 0):
+        try:
+            self.servidor.reconocedor_voz = self._rec_robot if fuente == "robot" else self._rec_pc
+            resultado = self.servidor.procesar_voz()
+        except Exception as e:  # noqa: BLE001
+            log.exception("Error al escuchar")
+            resultado = {"exito": False, "mensaje": f"Error al escuchar: {type(e).__name__}: {e}"}
+        if fuente == "robot" and not resultado.get("exito") and self._servidor_audio is not None \
+                and "paquetes" in str(resultado.get("mensaje", "")):
+            cola = self._servidor_audio.log_remoto()       # por qué no llega audio: el log del servidor del robot
+            self._raiz.after(0, self._agregar_log, f"Log del audio en el robot:\n{cola}")
+        self._raiz.after(0, self._finalizar_escucha, resultado, id_)
+
+    def _finalizar_escucha(self, resultado: dict, id_: int = None):
+        if id_ is not None and id_ != self._id_escucha:
+            return                                     # escucha cancelada o vencida: se descarta
+        self._escuchando = False
+        self._escuchando_fuente = None
+        self._restaurar_botones_voz()
 
         if resultado.get("texto_reconocido"):
             self._agregar_log(f"Voz reconocida ({resultado.get('fuente_mic', 'pc')}): "
@@ -703,7 +784,7 @@ class VentanaVozASena:
             return f"{destino}: enlazando…", "#fde68a"
         if self._lanzado[False] and not self.modo_real and self.auto_enlazar_camara:
             return "Simulador iniciado: se enlaza con la primera seña", "#fde68a"
-        return "Simulador: sin enlazar (pestaña Voz → «🖥 Abrir simulación»)", "#f87171"
+        return "Simulador: sin enlazar (pestaña Voz → «🖥 Abrir simulación»)", "#60a5fa"
 
     def _enviar_al_robot(self, señas):
         """Ejecuta la secuencia en el G1, una seña tras otra (hilo aparte)."""

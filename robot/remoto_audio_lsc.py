@@ -40,6 +40,12 @@ except ImportError:                   # Python >= 3.13 ya no trae audioop: respa
             return array.array("h", [int(a[i] * f1 + a[i + 1] * f2) for i in range(0, len(a) - 1, 2)]).tobytes()
 
         @staticmethod
+        def rms(datos, ancho):
+            a = array.array("h")
+            a.frombytes(datos[:len(datos) // 2 * 2])
+            return int((sum(v * v for v in a) / float(len(a) or 1)) ** 0.5)
+
+        @staticmethod
         def ratecv(datos, ancho, canales, fs_in, fs_out, estado):
             a = array.array("h")
             a.frombytes(datos)
@@ -69,8 +75,34 @@ def candidatos(card):
     ]
 
 
+def fuentes_pulse():
+    """Fuentes de captura USB de PulseAudio (nombres «alsa_input.usb-…», sin monitores), la más nueva primero.
+
+    Si PulseAudio (p. ej. el del escritorio) ya tiene abierta la tarjeta, `arecord` directo da «Device or
+    resource busy»; entonces se captura a través de Pulse con `parec`."""
+    try:
+        txt = subprocess.run(["pactl", "list", "short", "sources"], capture_output=True, text=True,
+                             timeout=6).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    fuentes = []
+    for linea in txt.splitlines():
+        campos = linea.split("\t")
+        if len(campos) >= 2 and "usb" in campos[1].lower() and not campos[1].endswith(".monitor"):
+            fuentes.append((int(campos[0]) if campos[0].isdigit() else 0, campos[1]))
+    return [n for _, n in sorted(fuentes, reverse=True)]
+
+
+def candidatos_pulse():
+    return [("pulse:%s" % n, "S16_LE", 16000, 1, 2) for n in fuentes_pulse()]
+
+
 def abrir_arecord(cfg):
     dev, fmt, fs, ch, _ = cfg
+    if dev.startswith("pulse:"):
+        return subprocess.Popen(
+            ["parec", "--device=%s" % dev[6:], "--format=s16le", "--rate=%d" % fs, "--channels=%d" % ch, "--raw"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     return subprocess.Popen(
         ["arecord", "-q", "-D", dev, "-f", fmt, "-r", str(fs), "-c", str(ch), "-t", "raw"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -83,7 +115,9 @@ def a_16k_mono(datos, cfg, estado):
         datos = audioop.lin2lin(datos, 3, 2)
         ancho = 2
     if ch == 2:
-        datos = audioop.tomono(datos, ancho, 0.5, 0.5)
+        # canal con más energía (promediar anula la señal si un canal viene en contrafase o vacío)
+        izq, der = audioop.tomono(datos, ancho, 1, 0), audioop.tomono(datos, ancho, 0, 1)
+        datos = izq if audioop.rms(izq, ancho) >= audioop.rms(der, ancho) else der
     if fs != FS_SALIDA:
         datos, estado[0] = audioop.ratecv(datos, ancho, 1, fs, FS_SALIDA, estado[0])
     return datos
@@ -114,6 +148,22 @@ class Difusor:
             return len(vivos)
 
 
+class EmisorUDP:
+    """Misma interfaz que Difusor, pero manda cada bloque como datagrama UDP a la PC (3200 B = 100 ms)."""
+
+    def __init__(self, destino):
+        ip, puerto = destino.rsplit(":", 1)
+        self.destino = (ip, int(puerto))
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def enviar(self, datos):
+        try:
+            self.s.sendto(datos, self.destino)
+        except OSError as e:
+            log("UDP: %s" % e)
+        return 1
+
+
 def aceptar(srv, difusor):
     while True:
         c, addr = srv.accept()
@@ -124,7 +174,7 @@ def aceptar(srv, difusor):
 
 def elegir_captura(card):
     """Primera configuración que entrega datos en 3 s; devuelve (cfg, proceso) o (None, None)."""
-    for cfg in candidatos(card):
+    for cfg in candidatos(card) + candidatos_pulse():
         p = abrir_arecord(cfg)
         t0 = time.time()
         datos = b""
@@ -150,6 +200,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=55557)
     ap.add_argument("--card", default="microphone", help="ID de la tarjeta (arecord -l: 'card N: ID [..]')")
+    ap.add_argument("--udp", default="", metavar="IP:PUERTO",
+                    help="en vez de servir por TCP, enviar el audio por UDP a la PC (como mic_stream_g1.py)")
     a = ap.parse_args()
 
     cfg, proc = elegir_captura(a.card)
@@ -157,17 +209,22 @@ def main():
         log("ERROR: ninguna configuración entregó audio de la tarjeta '%s'" % a.card)
         sys.exit(2)
 
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", a.port))
-    srv.listen(4)
-    log("audio publicado en :%d" % a.port)
-    difusor = Difusor()
-    threading.Thread(target=aceptar, args=(srv, difusor), daemon=True).start()
+    if a.udp:
+        difusor = EmisorUDP(a.udp)
+        log("audio enviado por UDP a %s" % a.udp)
+    else:
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("0.0.0.0", a.port))
+        srv.listen(4)
+        log("audio publicado en :%d" % a.port)
+        difusor = Difusor()
+        threading.Thread(target=aceptar, args=(srv, difusor), daemon=True).start()
 
     ancho_in = cfg[4]
     bloque = cfg[2] * cfg[3] * ancho_in // 10          # 100 ms de audio de entrada
     estado = [None]
+    bloques = 0
     while True:
         datos = proc.stdout.read(bloque)
         if not datos:
@@ -176,7 +233,11 @@ def main():
             proc = abrir_arecord(cfg)
             estado = [None]
             continue
-        difusor.enviar(a_16k_mono(datos, cfg, estado))
+        pcm = a_16k_mono(datos, cfg, estado)
+        difusor.enviar(pcm)
+        bloques += 1
+        if bloques % 50 == 1:          # cada ~5 s: nivel del audio (para ver si el micrófono entrega señal)
+            log("nivel RMS %d pico %d (bloques %d)" % (audioop.rms(pcm, 2), audioop.max(pcm, 2) if hasattr(audioop, "max") else 0, bloques))
 
 
 if __name__ == "__main__":
