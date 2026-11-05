@@ -191,6 +191,9 @@ def parsear_args():
                    help="clave SSH del PC2 (necesita sshpass; mejor usar ssh-copy-id una vez)")
     p.add_argument("--g1-camara-nombre", default=None, metavar="TXT",
                    help="texto que identifica la cámara externa en v4l2-ctl (defecto OBSBOT)")
+    p.add_argument("--g1-camara-usb", default=None, metavar="PUERTO",
+                   help="puerto USB fijo de la cámara del robot (ej. 2-1.1; ver diagnostico_camara_g1). "
+                        "Sin esto se prueba primero la cámara conectada más recientemente")
     p.add_argument("--camara-g1-mono", action="store_true",
                    help="Forzar imagen de un solo lente (no recortar). Por defecto se detecta solo")
     p.add_argument("--sonic-real", action="store_true",
@@ -276,6 +279,8 @@ def main():
         config.camara_g1_usuario = args.g1_usuario
     if args.g1_clave:
         config.camara_g1_clave = args.g1_clave
+    if getattr(args, "g1_camara_usb", None) is not None:
+        config.camara_g1_usb = args.g1_camara_usb
     if args.g1_camara_nombre:
         config.camara_g1_nombre = args.g1_camara_nombre
     # Modo automático: sin flags, la app detecta si el robot está en la red y elige real o simulación

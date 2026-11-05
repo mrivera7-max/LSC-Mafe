@@ -44,6 +44,7 @@ class Verificador:
         self.usuario = getattr(config, "camara_g1_usuario", "unitree")
         self.clave = getattr(config, "camara_g1_clave", None)
         self.nombre_cam = getattr(config, "camara_g1_nombre", "OBSBOT")
+        self.usb_cam = getattr(config, "camara_g1_usb", "")
         self.usar_camara_robot = usar_camara_robot
         self._ssh_ok = False
         self._red_ok = False
@@ -109,7 +110,8 @@ class Verificador:
 
     # ── Comprobaciones ───────────────────────────────────────────────
     def _srv(self) -> ServidorCamaraG1:
-        return ServidorCamaraG1(self.host, self.usuario, self.clave, nombre_camara=self.nombre_cam)
+        return ServidorCamaraG1(self.host, self.usuario, self.clave, nombre_camara=self.nombre_cam,
+                                usb_fijo=getattr(self.config, "camara_g1_usb", ""))
 
     def _red(self) -> Resultado:
         try:

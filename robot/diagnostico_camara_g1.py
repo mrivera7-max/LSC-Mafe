@@ -8,7 +8,7 @@ servidor de cámara. Pega la salida completa si hay que revisarla.
 """
 import argparse
 
-from robot.servidor_camara_g1 import ErrorCamaraG1, ServidorCamaraG1
+from robot.servidor_camara_g1 import ENUMERAR_USB, ErrorCamaraG1, ServidorCamaraG1, candidatas_usb, parsear_camaras_usb
 
 
 def main():
@@ -18,6 +18,7 @@ def main():
     a = ap.parse_args()
     srv = ServidorCamaraG1(a.host, a.usuario)
     comandos = [
+        ("Nodos de vídeo USB (sysfs, sin nombres)", None),
         ("Dispositivos USB de Intel/cámaras", "lsusb | grep -i -E 'intel|realsense|camera|obsbot|webcam' || echo '(ninguno)'"),
         ("Cámaras (v4l2-ctl --list-devices)", "timeout 40 v4l2-ctl --list-devices 2>&1"),
         ("Formatos por nodo", "for d in /dev/video*; do echo \"== $d\"; v4l2-ctl -d $d --list-formats 2>/dev/null | grep -E \"\\[[0-9]+\\]\" ; done"),
@@ -28,6 +29,16 @@ def main():
     for titulo, cmd in comandos:
         print(f"\n##### {titulo}")
         try:
+            if cmd is None:
+                camaras = parsear_camaras_usb(srv._ssh("python3 -", entrada=ENUMERAR_USB, timeout=60))
+                for c in camaras:
+                    print(f"  {c!r}  color={'sí' if c.es_color else 'no'}  [{c.info}]")
+                print("  Orden en que la app las prueba (la primera = la conectada más reciente):")
+                for i, (usb, nodos, datos) in enumerate(candidatas_usb(camaras), 1):
+                    print(f"   {i}. puerto USB {usb}  nodos {nodos}  {datos[0].velocidad or '?'} Mb/s")
+                if not camaras:
+                    print("  (el robot no tiene nodos de vídeo USB)")
+                continue
             print(srv._ssh(cmd, timeout=60).rstrip())
         except ErrorCamaraG1 as e:
             print(f"ERROR: {e}")

@@ -109,7 +109,7 @@ def ordenar_grupos(texto: str, clave: str = NOMBRE_EXTERNA) -> List[Tuple[str, L
 
 
 _NO_COLOR = ("Z16", "GREY", "Y8I", "Y12I", "Y16")
-_COLOR = ("YUYV", "MJPG", "RGB3", "BGR3", "NV12")
+_COLOR = ("YUYV", "MJPG", "UYVY", "RGB3", "BGR3", "NV12")
 
 
 def elegir_nodo_color(formatos: str) -> Optional[str]:
@@ -129,6 +129,101 @@ def elegir_nodo_color(formatos: str) -> Optional[str]:
         if codigos & set(_COLOR) and not codigos & set(_NO_COLOR):
             return m.group(1)
     return None
+
+
+# ── Detección SIN nombres: se enumeran los nodos de vídeo USB y se prueba el más recién conectado ──
+ENUMERAR_USB = r"""
+import glob, json, os, re, subprocess
+def leer(p):
+    try:
+        return open(p).read().strip()
+    except Exception:
+        return ""
+def cmd(a):
+    try:
+        return subprocess.run(a, capture_output=True, text=True, timeout=6).stdout
+    except Exception:
+        return ""
+res = []
+for sd in sorted(glob.glob("/sys/class/video4linux/video*"), key=lambda s: int(re.search(r"(\d+)$", s).group(1))):
+    nodo = os.path.basename(sd)
+    real = os.path.realpath(sd)
+    if "/usb" not in real:
+        continue                                  # interna (Tegra / plataforma): no es una cámara USB
+    d = real
+    while d != "/" and not os.path.exists(os.path.join(d, "idVendor")):
+        d = os.path.dirname(d)
+    fmts = cmd(["v4l2-ctl", "-d", "/dev/" + nodo, "--list-formats"])
+    prop = cmd(["udevadm", "info", "-q", "property", "-n", "/dev/" + nodo])
+    m = re.search(r"USEC_INITIALIZED=(\d+)", prop)
+    res.append({
+        "nodo": int(nodo[5:]),
+        "usb": os.path.basename(d),
+        "vidpid": leer(d + "/idVendor") + ":" + leer(d + "/idProduct"),
+        "velocidad": leer(d + "/speed"),
+        "devnum": int(leer(d + "/devnum") or 0),
+        "usec": int(m.group(1)) if m else 0,
+        "info": leer(d + "/product"),
+        "formatos": sorted(set(re.findall(r"'([A-Za-z0-9 ]{4})'", fmts))),
+    })
+print(json.dumps(res))
+"""
+
+
+class CamaraUSB:
+    """Un nodo /dev/videoN de una cámara USB (datos leídos de sysfs, sin mirar su nombre)."""
+
+    def __init__(self, d: dict):
+        self.nodo = int(d.get("nodo", -1))
+        self.usb = str(d.get("usb", ""))
+        self.vidpid = str(d.get("vidpid", ""))
+        self.velocidad = str(d.get("velocidad", ""))
+        self.devnum = int(d.get("devnum", 0) or 0)
+        self.usec = int(d.get("usec", 0) or 0)
+        self.info = str(d.get("info", ""))              # solo informativo, nunca se usa para decidir
+        self.formatos = [str(f).strip() for f in d.get("formatos", [])]
+
+    @property
+    def es_color(self) -> bool:
+        f = set(self.formatos)
+        return bool(f & set(_COLOR)) and not f & set(_NO_COLOR)
+
+    def __repr__(self):
+        return (f"/dev/video{self.nodo} puerto USB {self.usb} ({self.velocidad or '?'} Mb/s, "
+                f"{self.vidpid}) formatos {','.join(self.formatos) or '-'}")
+
+
+def parsear_camaras_usb(texto: str) -> List[CamaraUSB]:
+    """Salida JSON de ENUMERAR_USB → lista de CamaraUSB (vacía si no hay JSON válido)."""
+    import json
+    for linea in reversed(texto.strip().splitlines()):
+        linea = linea.strip()
+        if linea.startswith("["):
+            try:
+                return [CamaraUSB(d) for d in json.loads(linea)]
+            except ValueError:
+                break
+    return []
+
+
+def candidatas_usb(camaras: List[CamaraUSB], preferido: str = "") -> List[Tuple[str, List[int], List[CamaraUSB]]]:
+    """Cámaras físicas con imagen en color, en el orden en que conviene probarlas: [(puerto USB, [nodos], [datos])].
+
+    Sin nombres: 1) si el usuario fijó un puerto USB, ese primero; 2) luego la conectada más recientemente
+    (USEC_INITIALIZED del nodo, o el número de dispositivo USB como respaldo); 3) las demás."""
+    grupos: dict = {}
+    for c in camaras:
+        if c.es_color:
+            grupos.setdefault(c.usb, []).append(c)
+    salida = []
+    for usb, nodos in grupos.items():
+        nodos.sort(key=lambda c: c.nodo)
+        salida.append((usb, [c.nodo for c in nodos], nodos))
+
+    def clave(g):
+        fijo = 0 if preferido and g[0] == preferido else 1
+        return (fijo, -max(c.usec for c in g[2]), -max(c.devnum for c in g[2]), g[0])
+    return sorted(salida, key=clave)
 
 
 SCRIPT_REMOTO = "~/lsc_camara_server.py"
@@ -173,8 +268,10 @@ def generar_yaml(video_id: str, puerto: int = PUERTO_EXTERNA, forma: Tuple[int, 
 class ServidorCamaraG1:
     def __init__(self, host: str = HOST_DEFECTO, usuario: str = USUARIO_DEFECTO,
                  clave: Optional[str] = None, puerto: int = PUERTO_EXTERNA,
-                 nombre_camara: str = NOMBRE_EXTERNA, directorio: str = DIR_TELEIMAGER):
+                 nombre_camara: str = NOMBRE_EXTERNA, directorio: str = DIR_TELEIMAGER,
+                 usb_fijo: str = ""):
         self.host, self.usuario, self.clave = host, usuario, clave
+        self.usb_fijo = (usb_fijo or "").strip()      # puerto USB fijado por el usuario ("" = automático)
         self.puerto, self.nombre_camara, self.directorio = puerto, nombre_camara, directorio
 
     # ── SSH ──────────────────────────────────────────────────────────
@@ -241,8 +338,10 @@ class ServidorCamaraG1:
             video = videos[0].replace("/dev/video", "")
             forma = FORMA
             paso(f"Cámara externa «{nombre}» en /dev/video{video}.")
+        elif self._enumerar_usb_ok(paso):
+            return self._preparar_por_usb(paso, espera_s)
         else:
-            # Detecta TODAS las cámaras conectadas por USB (no solo la que se llame como `nombre_camara`) y
+            # Respaldo (si no se pudo enumerar por sysfs): detecta TODAS las cámaras conectadas por USB (no solo la que se llame como `nombre_camara`) y
             # prueba cada una hasta que alguna entregue imagen: la preferida por nombre, luego cualquier otra.
             grupos = ordenar_grupos(listado, self.nombre_camara)
             if not grupos:
@@ -310,6 +409,42 @@ class ServidorCamaraG1:
         raise ErrorCamaraG1(f"El servidor de cámara no abrió el puerto {self.puerto} en {espera_s:.0f} s."
                             + (f"\nÚltimas líneas del robot ({LOG_REMOTO}):\n{cola.strip()}" if cola else ""))
 
+    def _enumerar_usb(self) -> List[CamaraUSB]:
+        return parsear_camaras_usb(self._ssh("python3 -", entrada=ENUMERAR_USB, timeout=60))
+
+    def _enumerar_usb_ok(self, paso) -> bool:
+        """True si la enumeración por sysfs funcionó y encontró al menos un nodo USB de vídeo."""
+        try:
+            self._camaras = self._enumerar_usb()
+        except ErrorCamaraG1:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"No se pudo enumerar las cámaras USB: {e}")
+            self._camaras = []
+        return bool(self._camaras)
+
+    def _preparar_por_usb(self, paso, espera_s: float) -> int:
+        """Prueba cada cámara USB con color, la más recién conectada primero (o la del puerto fijado)."""
+        camaras = self._camaras
+        candidatas = candidatas_usb(camaras, self.usb_fijo)
+        if self.usb_fijo and not any(g[0] == self.usb_fijo for g in candidatas):
+            paso(f"No hay cámara con color en el puerto USB {self.usb_fijo}; pruebo las demás.")
+        if not candidatas:
+            vistos = "; ".join(repr(c) for c in camaras)
+            raise ErrorCamaraG1("Ningún nodo USB del robot ofrece imagen en color. Nodos USB vistos: "
+                                f"{vistos}. Prueba otro puerto USB o cable (¿USB 3?).")
+        paso("Cámaras USB con color (la primera es la más reciente): " + "; ".join(
+            f"puerto {usb} nodos {nodos} ({datos[0].velocidad or '?'} Mb/s)" for usb, nodos, datos in candidatas))
+        fallos = []
+        for usb, nodos, datos in candidatas:
+            paso(f"Probando la cámara del puerto USB {usb} (nodos {nodos}, {datos[0].velocidad or '?'} Mb/s)…")
+            try:
+                return self._lanzar_ligero(nodos, FORMA_REALSENSE, paso, max(espera_s, 80.0))
+            except ErrorCamaraG1 as e:
+                fallos.append(f"puerto {usb}: {str(e).splitlines()[0]}")
+                paso(f"El puerto {usb} no entrega imagen; pruebo la siguiente.")
+        raise ErrorCamaraG1("Ninguna cámara del robot entregó imagen. " + " | ".join(fallos))
+
     def _preparar_realsense(self, listado: str, paso, espera_s: float) -> int:
         """RealSense: servidor ligero propio (no teleimager). Prueba los nodos de color de TODAS las
         RealSense del robot, la última conectada primero, hasta que una entregue imagen."""
@@ -347,8 +482,15 @@ class ServidorCamaraG1:
         except ErrorCamaraG1 as e:
             if "a tiempo" not in str(e):
                 raise
-        fin = time.time() + espera_s
+        fin, ultimo_log = time.time() + espera_s, time.time()
         while time.time() < fin:
+            if time.time() - ultimo_log > 6.0:          # si el servidor remoto ya terminó con ERROR, no esperar más
+                ultimo_log = time.time()
+                try:
+                    if "ERROR:" in self._ssh(f"cat {LOG_LIGERO} 2>/dev/null", timeout=10):
+                        break
+                except ErrorCamaraG1:
+                    pass
             if self.puerto_abierto():
                 fuente = ""
                 try:

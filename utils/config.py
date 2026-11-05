@@ -25,6 +25,7 @@ class Configuracion:
         self.camara_g1_auto = True                # al pulsar «Cámara G1», preparar el robot por SSH (RealSense off, externa on)
         self.camara_g1_usuario = "unitree"
         self.camara_g1_clave = None               # solo si no hay llave SSH y existe sshpass
+        self.camara_g1_usb = ""                   # puerto USB fijo de la cámara del robot (ej. "2-1.1"); vacío = la más reciente
         self.camara_g1_nombre = "OBSBOT"          # texto que identifica la cámara externa en v4l2-ctl
         self.camara_g1_binocular = None           # None = automático (recorta solo si la imagen es estéreo); True/False fuerza
 
