@@ -65,7 +65,8 @@ class DialogoConfig(tk.Toplevel):
         self._campo(tab_rob, "IP del PC2 del robot:", "camara_g1_host", f); f += 1
         self._campo(tab_rob, "Usuario SSH:", "camara_g1_usuario", f); f += 1
         self._campo(tab_rob, "Interfaz del cable (deploy):", "sonic_iface", f); f += 1
-        self._campo(tab_rob, "Puerto USB de la cámara (vacío = la más reciente):", "camara_g1_usb", f); f += 1
+        self._campo(tab_rob, "Puerto USB de la cabeza (no se usa):", "camara_g1_usb_cabeza", f); f += 1
+        self._campo(tab_rob, "Puerto USB de la cámara (vacío = la externa):", "camara_g1_usb", f); f += 1
         f = self._titulo(tab_rob, "Movimiento de las señas (solo robot real)", f)
         self._campo(tab_rob, "Amplitud (0-1):", "sonic_escala", f); f += 1
         self._campo(tab_rob, "Factor de tiempo (≥ 1):", "sonic_tiempo", f); f += 1

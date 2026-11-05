@@ -206,11 +206,16 @@ def parsear_camaras_usb(texto: str) -> List[CamaraUSB]:
     return []
 
 
-def candidatas_usb(camaras: List[CamaraUSB], preferido: str = "") -> List[Tuple[str, List[int], List[CamaraUSB]]]:
+USB_CABEZA = "2-2.1"          # puerto interno de la RealSense de la cabeza del G1 (la externa va a otro puerto)
+
+
+def candidatas_usb(camaras: List[CamaraUSB], preferido: str = "",
+                   cabeza: str = "") -> List[Tuple[str, List[int], List[CamaraUSB]]]:
     """Cámaras físicas con imagen en color, en el orden en que conviene probarlas: [(puerto USB, [nodos], [datos])].
 
     Sin nombres: 1) si el usuario fijó un puerto USB, ese primero; 2) luego la conectada más recientemente
-    (USEC_INITIALIZED del nodo, o el número de dispositivo USB como respaldo); 3) las demás."""
+    (USEC_INITIALIZED del nodo, o el número de dispositivo USB como respaldo). La cámara de la cabeza
+    (`cabeza` = su puerto USB interno) va siempre al final: solo se usa si no hay ninguna otra."""
     grupos: dict = {}
     for c in camaras:
         if c.es_color:
@@ -222,6 +227,8 @@ def candidatas_usb(camaras: List[CamaraUSB], preferido: str = "") -> List[Tuple[
 
     def clave(g):
         fijo = 0 if preferido and g[0] == preferido else 1
+        if cabeza and g[0] == cabeza and g[0] != preferido:
+            fijo = 2
         return (fijo, -max(c.usec for c in g[2]), -max(c.devnum for c in g[2]), g[0])
     return sorted(salida, key=clave)
 
@@ -269,8 +276,9 @@ class ServidorCamaraG1:
     def __init__(self, host: str = HOST_DEFECTO, usuario: str = USUARIO_DEFECTO,
                  clave: Optional[str] = None, puerto: int = PUERTO_EXTERNA,
                  nombre_camara: str = NOMBRE_EXTERNA, directorio: str = DIR_TELEIMAGER,
-                 usb_fijo: str = ""):
+                 usb_fijo: str = "", usb_cabeza: str = USB_CABEZA):
         self.host, self.usuario, self.clave = host, usuario, clave
+        self.usb_cabeza = (usb_cabeza or "").strip()   # puerto USB de la cámara de la cabeza (se evita)
         self.usb_fijo = (usb_fijo or "").strip()      # puerto USB fijado por el usuario ("" = automático)
         self.puerto, self.nombre_camara, self.directorio = puerto, nombre_camara, directorio
 
@@ -426,16 +434,18 @@ class ServidorCamaraG1:
     def _preparar_por_usb(self, paso, espera_s: float) -> int:
         """Prueba cada cámara USB con color, la más recién conectada primero (o la del puerto fijado)."""
         camaras = self._camaras
-        candidatas = candidatas_usb(camaras, self.usb_fijo)
+        candidatas = candidatas_usb(camaras, self.usb_fijo, self.usb_cabeza)
         if self.usb_fijo and not any(g[0] == self.usb_fijo for g in candidatas):
             paso(f"No hay cámara con color en el puerto USB {self.usb_fijo}; pruebo las demás.")
         if not candidatas:
             vistos = "; ".join(repr(c) for c in camaras)
             raise ErrorCamaraG1("Ningún nodo USB del robot ofrece imagen en color. Nodos USB vistos: "
                                 f"{vistos}. Prueba otro puerto USB o cable (¿USB 3?).")
-        paso("Cámaras USB con color (la primera es la más reciente): " + "; ".join(
+        paso("Cámaras USB con color (primero las externas, la más reciente antes; la cabeza va al final): " + "; ".join(
             f"puerto {usb} nodos {nodos} ({datos[0].velocidad or '?'} Mb/s)" for usb, nodos, datos in candidatas))
         fallos = []
+        if self.usb_cabeza and len(candidatas) == 1 and candidatas[0][0] == self.usb_cabeza and self.usb_cabeza != self.usb_fijo:
+            paso("Solo hay la cámara de la cabeza (no hay cámara externa conectada): se usará esa.")
         for usb, nodos, datos in candidatas:
             paso(f"Probando la cámara del puerto USB {usb} (nodos {nodos}, {datos[0].velocidad or '?'} Mb/s)…")
             try:

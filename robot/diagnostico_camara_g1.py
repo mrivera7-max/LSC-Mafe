@@ -8,7 +8,7 @@ servidor de cámara. Pega la salida completa si hay que revisarla.
 """
 import argparse
 
-from robot.servidor_camara_g1 import ENUMERAR_USB, ErrorCamaraG1, ServidorCamaraG1, candidatas_usb, parsear_camaras_usb
+from robot.servidor_camara_g1 import ENUMERAR_USB, ErrorCamaraG1, ServidorCamaraG1, USB_CABEZA, candidatas_usb, parsear_camaras_usb
 
 
 def main():
@@ -34,8 +34,8 @@ def main():
                 for c in camaras:
                     print(f"  {c!r}  color={'sí' if c.es_color else 'no'}  [{c.info}]")
                 print("  Orden en que la app las prueba (la primera = la conectada más reciente):")
-                for i, (usb, nodos, datos) in enumerate(candidatas_usb(camaras), 1):
-                    print(f"   {i}. puerto USB {usb}  nodos {nodos}  {datos[0].velocidad or '?'} Mb/s")
+                for i, (usb, nodos, datos) in enumerate(candidatas_usb(camaras, "", USB_CABEZA), 1):
+                    print(f"   {i}. puerto USB {usb}  nodos {nodos}  {datos[0].velocidad or '?'} Mb/s" + ("  (cabeza: se usa solo si no hay otra)" if usb == USB_CABEZA else ""))
                 if not camaras:
                     print("  (el robot no tiene nodos de vídeo USB)")
                 continue

@@ -669,7 +669,8 @@ class VentanaPrincipal:
             srv = ServidorCamaraG1(cfg.camara_g1_host, getattr(cfg, "camara_g1_usuario", "unitree"),
                                    getattr(cfg, "camara_g1_clave", None),
                                    nombre_camara=getattr(cfg, "camara_g1_nombre", "OBSBOT"),
-                                   usb_fijo=getattr(cfg, "camara_g1_usb", ""))
+                                   usb_fijo=getattr(cfg, "camara_g1_usb", ""),
+                                   usb_cabeza=getattr(cfg, "camara_g1_usb_cabeza", "2-2.1"))
             try:
                 puerto = srv.preparar(aviso)
                 error = None

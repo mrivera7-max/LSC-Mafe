@@ -111,7 +111,8 @@ class Verificador:
     # ── Comprobaciones ───────────────────────────────────────────────
     def _srv(self) -> ServidorCamaraG1:
         return ServidorCamaraG1(self.host, self.usuario, self.clave, nombre_camara=self.nombre_cam,
-                                usb_fijo=getattr(self.config, "camara_g1_usb", ""))
+                                usb_fijo=getattr(self.config, "camara_g1_usb", ""),
+                                usb_cabeza=getattr(self.config, "camara_g1_usb_cabeza", "2-2.1"))
 
     def _red(self) -> Resultado:
         try:
