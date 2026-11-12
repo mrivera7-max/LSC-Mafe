@@ -95,13 +95,19 @@ class AppUnificada:
         self.panel_camara = VentanaPrincipal(self.config)
         self.panel_camara.montar_en(tab_cam, self._raiz)
 
-        self.panel_voz = VentanaVozASena(**self.sonic_opciones)
+        opciones_voz = dict(self.sonic_opciones)
+        confianza_fija = opciones_voz.pop("confianza_fija", False)
+        self.panel_voz = VentanaVozASena(**opciones_voz)
         self.panel_voz.montar_en(tab_voz, self._raiz)
         self.panel_voz.montar_consola(tab_con, lambda: notebook.select(tab_con))
         self.panel_voz.robot = self.panel_camara._robot  # compartir el conector
         # La seña que detecta la cámara también la ejecuta el G1 de SONIC (MuJoCo o real)
         self.panel_camara.ejecutar_seña_sonic = self.panel_voz.ejecutar_desde_camara
         self.panel_camara.estado_destino = self.panel_voz.estado_replica
+        self.panel_camara.motivo_destino = lambda: (self.panel_voz.motivo_camara, self.panel_voz.reintentar_camara)
+        if not confianza_fija:
+            # la «Confianza para ejecutar» de Configuración vale al instante, sin reiniciar la app
+            self.panel_voz.confianza_fuente = lambda: getattr(self.config, "sonic_confianza", 0.8)
 
         # ── Datos: capturar señas con la cámara, o cargar capturas, y reentrenar
         from gui.panel_datos import PanelDatos
@@ -316,7 +322,8 @@ def main():
     mic_indice = args.mic_indice if args.mic_indice is not None else (
         config.mic_indice if getattr(config, "mic_indice", -1) >= 0 else None)
     sonic_opciones = dict(modo_real=args.sonic_real, escala=escala, factor_tiempo=tiempo, vel_max=vel_max,
-                          confianza_min=de(args.sonic_confianza, "sonic_confianza") or 0.8,
+                          confianza_min=(de(args.sonic_confianza, "sonic_confianza") if de(args.sonic_confianza, "sonic_confianza") is not None else 0.8),
+                          confianza_fija=args.sonic_confianza is not None,
                           manos=de(args.manos, "sonic_manos") or "auto",
                           auto_enlazar_camara=not args.sin_auto_enlace)
     sonic_opciones.update(mic=mic, mic_iface_ip=args.mic_g1_ip,

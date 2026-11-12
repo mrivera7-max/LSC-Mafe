@@ -53,6 +53,10 @@ class VentanaVozASena:
         self.auto_enlazar_camara = auto_enlazar_camara
         self._pendiente_camara = None                 # (seña, instante) recibida mientras se enlazaba
         self.confianza_min = confianza_min
+        self.confianza_fuente = None                  # callable -> confianza vigente (Configuración, sin reiniciar)
+        self.motivo_camara = ""                       # por qué se descartó la última seña de la cámara
+        self.reintentar_camara = False                # True si el descarte es pasajero (robot ocupado)
+        self._avisos_camara = {}                      # (seña, motivo) -> instante del último aviso
         self.mic = mic
         self._mic_iface_ip = mic_iface_ip
         self._robot_ssh = (robot_host, robot_usuario, robot_clave)
@@ -731,32 +735,66 @@ class VentanaVozASena:
         self._raiz.after(0, self._agregar_log,
                          f"{self._nombre_destino}: ejecutada {' -> '.join(señas)}")
 
+    def _rechazar_camara(self, seña, motivo: str, reintentar: bool = False) -> bool:
+        """Descarta la seña de la cámara AVISANDO por qué (antes se perdía en silencio)."""
+        import time
+        self.motivo_camara, self.reintentar_camara = motivo, reintentar
+        ahora, clave = time.time(), (seña.nombre, motivo)
+        if ahora - self._avisos_camara.get(clave, 0.0) > 3.0:
+            self._avisos_camara[clave] = ahora
+            self._raiz.after(0, self._agregar_log,
+                             f"Cámara: «{seña.nombre}» ({seña.confianza:.0%}) detectada pero NO se ejecuta: {motivo}")
+        return False
+
     def ejecutar_desde_camara(self, seña) -> bool:
         """Ejecuta en el G1 (MuJoCo o real) la seña que detectó la pestaña Cámara.
 
-        `seña` tiene .nombre y .confianza. Devuelve True si se aceptó. Se descarta
-        (sin encolar) si no hay conexión, si la confianza es baja o si el robot
-        sigue ejecutando una seña anterior: con el G1 real no se acumulan órdenes.
+        `seña` tiene .nombre y .confianza. Devuelve True si se aceptó. Si se descarta (no hay
+        conexión, confianza baja, robot parado o aún ejecutando otra seña: con el G1 real no se
+        acumulan órdenes) deja el motivo en `motivo_camara`, lo escribe en la actividad y, si es
+        pasajero (`reintentar_camara`), la pestaña Cámara vuelve a intentarlo unos segundos.
         """
         sonic = self.sonic
-        if seña.confianza < self.confianza_min:
-            return False
+        minimo = self.confianza_min
+        if self.confianza_fuente is not None:
+            try:
+                minimo = float(self.confianza_fuente())
+            except (TypeError, ValueError):
+                pass
+        if seña.confianza < minimo:
+            return self._rechazar_camara(seña, f"confianza {seña.confianza:.0%} menor que «Confianza para ejecutar» "
+                                               f"({minimo:.0%}, Configuración → Robot G1)")
         if sonic is None or not sonic.conectado:
             self._auto_enlazar_desde_camara(seña)
-            return False
+            if self._conectando_sonic or self._esperando:
+                return self._rechazar_camara(seña, f"{self._nombre_destino} enlazando…", reintentar=True)
+            if self.modo_real:
+                return self._rechazar_camara(seña, "el robot real no está conectado: pulsa «🤖 Conectar robot real» "
+                                                   "en la pestaña Voz / Texto → Seña")
+            return self._rechazar_camara(seña, "la simulación no está enlazada: pulsa «🖥 Abrir simulación MuJoCo» "
+                                               "en la pestaña Voz / Texto → Seña")
         if sonic.detenido:
-            return False
+            return self._rechazar_camara(seña, "el robot está PARADO (botón PARAR): desconecta, «✖ Cerrar todo» y "
+                                               "vuelve a conectar")
         if not self._lock_sonic.acquire(blocking=False):
-            return False  # ocupado con otra seña
+            return self._rechazar_camara(seña, "el robot sigue ejecutando otra seña", reintentar=True)
         self._lock_sonic.release()
+        self.motivo_camara, self.reintentar_camara = "", False
 
         def _tarea():
             if not self._lock_sonic.acquire(blocking=False):
                 return
             try:
                 if sonic.conectado and not sonic.detenido:
+                    self._raiz.after(0, self._agregar_log,
+                                     f"{self._nombre_destino}: ejecutando «{seña.nombre}» detectada por cámara "
+                                     f"({seña.confianza:.0%})…")
                     sonic.enviar_seña(seña.nombre)
                     sonic.reposo(1.2)
+            except Exception as e:  # noqa: BLE001
+                log.exception("Error al ejecutar la seña de la cámara")
+                self._raiz.after(0, self._agregar_log, f"[ERROR] «{seña.nombre}» no se pudo ejecutar: {e}")
+                return
             finally:
                 self._lock_sonic.release()
             self._raiz.after(0, self._agregar_log,

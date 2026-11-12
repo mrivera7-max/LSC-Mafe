@@ -45,6 +45,10 @@ class VentanaPrincipal:
         self._t_ultima_seña = 0.0         # última vez que el reconocedor vio una seña (para poder repetirla)
         self._replicar = True             # replicar en el simulador / robot las señas detectadas
         self.estado_destino = None        # callable -> (texto, color); lo asigna app_unificada
+        self.motivo_destino = None        # callable -> (motivo del último descarte, ¿reintentar?); lo asigna app_unificada
+        self._pend_robot = None           # (seña, instante, último intento): seña detectada aún sin ejecutar
+        self._aviso_replica = ("", 0.0)   # (texto, instante) último motivo de no replicar, se muestra en la barra
+        self._info_g1 = {}                # datos de la cámara externa del robot (los llena _g1_preparado)
 
         # Componentes del sistema (inicializados al arrancar)
         self._reconocedor = None
@@ -402,6 +406,9 @@ class VentanaPrincipal:
         """Cada segundo muestra si hay un simulador / robot de SONIC enlazado para replicar las señas."""
         try:
             texto, color = self.estado_destino() if self.estado_destino else ("Simulador: sin enlazar", self._colores["azul"])
+            aviso, t_aviso = self._aviso_replica
+            if aviso and time.time() - t_aviso < 8.0:          # el último motivo de no replicar, 8 s
+                texto, color = aviso, self._colores["rojo"]
             self._lbl_status_sim.configure(text=f"● {texto}", fg=color)
             self._raiz.after(1000, self._refrescar_estado_sim)
         except tk.TclError:
@@ -519,15 +526,15 @@ class VentanaPrincipal:
                 self._ultima_seña = seña
                 self._total_señas += 1
                 self._raiz.after(0, self._actualizar_seña, seña)
-                # Primero el G1 vía SONIC (MuJoCo o real), si la pestaña Voz lo conectó
-                hook = getattr(self, "ejecutar_seña_sonic", None)
-                if hook is not None and self._replicar and hook(seña):
-                    pass
-                elif self._robot and self._robot.conectado:
-                    threading.Thread(
-                        target=self._robot.enviar_seña,
-                        args=(seña.nombre,), daemon=True
-                    ).start()
+                self._pend_robot = (seña, ahora, 0.0)       # por ejecutar en el robot (se reintenta si está ocupado)
+
+            if self._pend_robot is not None:
+                p_seña, p_t0, p_ult = self._pend_robot
+                if ahora - p_t0 > 4.0:
+                    self._pend_robot = None                 # ya es vieja: no se ejecuta fuera de tiempo
+                elif ahora - p_ult >= 0.3:
+                    self._pend_robot = (p_seña, p_t0, ahora)
+                    self._replicar_seña(p_seña)
 
             # Dibujar y encolar frame
             frame_anotado = self._reconocedor.dibujar_landmarks(frame, seña)
@@ -536,6 +543,33 @@ class VentanaPrincipal:
                 self._cola_frames.put_nowait(frame_anotado)
             except queue.Full:
                 pass
+
+    def _replicar_seña(self, seña):
+        """Manda la seña detectada al G1 (SONIC) o, si no, al conector clásico. Si se descarta, lo dice."""
+        if not self._replicar:
+            self._pend_robot = None
+            self._avisar_replica("«Replicar la seña detectada» está desmarcado: el robot no la ejecuta", True)
+            return
+        hook = getattr(self, "ejecutar_seña_sonic", None)
+        if hook is not None and hook(seña):
+            self._pend_robot = None
+            return
+        if self._robot and self._robot.conectado:
+            self._pend_robot = None
+            threading.Thread(target=self._robot.enviar_seña, args=(seña.nombre,), daemon=True).start()
+            return
+        motivo, reintentar = ("", False)
+        if self.motivo_destino is not None:
+            motivo, reintentar = self.motivo_destino()
+        if not reintentar:
+            self._pend_robot = None                         # motivo definitivo: no insistir
+        if hook is None:
+            motivo = "no hay robot ni simulación enlazados"
+        if motivo:
+            self._avisar_replica(f"«{seña.nombre}» no se ejecuta: {motivo}", not reintentar)
+
+    def _avisar_replica(self, texto: str, definitivo: bool):
+        self._aviso_replica = (texto, time.time())
 
     def _actualizar_video(self, gen=None):
         """Actualiza el label de video desde la cola de frames (hilo principal)."""
@@ -678,12 +712,14 @@ class VentanaPrincipal:
                 puerto, error = None, str(e)
             except Exception as e:  # noqa: BLE001
                 puerto, error = None, f"Error inesperado: {e}"
-            self._contenedor.after(0, lambda: self._g1_preparado(puerto, error))
+            info = dict(getattr(srv, "elegida", {}) or {}, fuente_remota=getattr(srv, "fuente_remota", ""))
+            self._contenedor.after(0, lambda: self._g1_preparado(puerto, error, info))
 
         threading.Thread(target=tarea, daemon=True).start()
 
-    def _g1_preparado(self, puerto, error):
+    def _g1_preparado(self, puerto, error, info=None):
         self._preparando_g1 = False
+        self._info_g1 = info or {}
         for b in (self._btn_cam_pc, self._btn_cam_g1):
             b.configure(state="normal")
         if error:
@@ -720,7 +756,52 @@ class VentanaPrincipal:
             threading.Thread(target=self._robot.conectar, daemon=True).start()
             self._btn_robot.configure(text="✕  Desconectar G1", bg=self._colores["rojo"])
 
+    def info_camara(self) -> dict:
+        """Datos de la cámara que está en uso (o de las que hay) para la pestaña Cámara de Configuración.
+
+        {"fuente": "pc"|"g1"|None, "titulo": str, "filas": [(etiqueta, valor), ...]}"""
+        cap, fuente, cfg = self._cap, self._fuente_cam, self.config
+        fps = float(getattr(self._reconocedor, "fps", 0.0) or 0.0) if self._reconocedor else 0.0
+        filas = []
+        if cap is None or fuente is None:
+            return {"fuente": None, "titulo": "Ninguna cámara activa", "filas": filas}
+        forma = None
+        if fuente == "g1":
+            fr = getattr(cap, "_frame", None)
+            forma = (fr.shape[1], fr.shape[0]) if fr is not None else None
+            i = self._info_g1
+            titulo = "Cámara del robot G1 (externa)"
+            if i.get("es_cabeza"):
+                titulo = "Cámara del robot G1 (la de la cabeza: no había otra)"
+            filas.append(("Origen", f"PC2 del robot {cfg.camara_g1_host}, ZMQ puerto {cfg.camara_g1_puerto}"))
+            if i.get("usb"):
+                filas.append(("Puerto USB", f"{i['usb']}" + (f" ({i['velocidad']} Mb/s)" if i.get("velocidad") else "")))
+            if i.get("nodos"):
+                filas.append(("Nodos de vídeo", ", ".join(f"/dev/video{n}" for n in i["nodos"])))
+            if i.get("fuente_remota"):
+                filas.append(("Fuente en el robot", i["fuente_remota"].split(" ", 1)[-1]))
+        else:
+            titulo = "Cámara de la PC"
+            nombre = ""
+            try:
+                from utils.detectar_camaras import listar_nodos
+                nombre = next((n.nombre for n in listar_nodos() if n.indice == cfg.camara_idx), "")
+            except Exception:  # noqa: BLE001
+                pass
+            filas.append(("Origen", f"/dev/video{cfg.camara_idx}" + (f" «{nombre}»" if nombre else "")))
+            try:
+                import cv2
+                w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                forma = (w, h) if w and h else None
+            except Exception:  # noqa: BLE001
+                pass
+        if forma:
+            filas.append(("Resolución real", f"{forma[0]}x{forma[1]}"))
+        filas.append(("FPS medidos", f"{fps:.1f}"))
+        filas.append(("Estado", "activa, reconociendo señas"))
+        return {"fuente": fuente, "titulo": titulo, "filas": filas}
+
     def _abrir_configuracion(self):
         """Abre el diálogo de configuración."""
         from gui.dialogo_config import DialogoConfig
-        DialogoConfig(self._raiz, self.config)
+        DialogoConfig(self._raiz, self.config, info_camara=self.info_camara)

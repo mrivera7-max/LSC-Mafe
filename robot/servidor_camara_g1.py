@@ -281,6 +281,8 @@ class ServidorCamaraG1:
         self.usb_cabeza = (usb_cabeza or "").strip()   # puerto USB de la cámara de la cabeza (se evita)
         self.usb_fijo = (usb_fijo or "").strip()      # puerto USB fijado por el usuario ("" = automático)
         self.puerto, self.nombre_camara, self.directorio = puerto, nombre_camara, directorio
+        self.elegida: dict = {}                       # cámara que quedó publicando (para mostrarla en Configuración)
+        self.fuente_remota = ""                       # línea «FUENTE …» del servidor ligero
 
     # ── SSH ──────────────────────────────────────────────────────────
     def _argv_ssh(self, remoto: str) -> Tuple[List[str], dict]:
@@ -449,7 +451,10 @@ class ServidorCamaraG1:
         for usb, nodos, datos in candidatas:
             paso(f"Probando la cámara del puerto USB {usb} (nodos {nodos}, {datos[0].velocidad or '?'} Mb/s)…")
             try:
-                return self._lanzar_ligero(nodos, FORMA_REALSENSE, paso, max(espera_s, 80.0))
+                puerto = self._lanzar_ligero(nodos, FORMA_REALSENSE, paso, max(espera_s, 80.0))
+                self.elegida = {"usb": usb, "nodos": list(nodos), "velocidad": datos[0].velocidad or "",
+                                "es_cabeza": usb == self.usb_cabeza, "fuente": self.fuente_remota}
+                return puerto
             except ErrorCamaraG1 as e:
                 fallos.append(f"puerto {usb}: {str(e).splitlines()[0]}")
                 paso(f"El puerto {usb} no entrega imagen; pruebo la siguiente.")
@@ -517,6 +522,7 @@ class ServidorCamaraG1:
                     raise ErrorCamaraG1(f"El servidor del robot abrió el puerto {self.puerto} pero no llegan imágenes.\n"
                                         f"Log del robot ({LOG_LIGERO}):\n{cola.strip()}")
                 paso(f"Cámara del robot lista. {fuente.strip()}")
+                self.fuente_remota = fuente.strip()
                 return self.puerto
             time.sleep(1.0)
         cola = ""
